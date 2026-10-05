@@ -23,7 +23,7 @@ import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 DEFAULT_PORT = 8766
 
 
@@ -45,6 +45,17 @@ def ensure_mempalace() -> None:
     me = os.path.realpath(sys.argv[0])
     for cand in candidates:
         if cand and os.path.isfile(cand) and os.access(cand, os.X_OK):
+            # The target interpreter does NOT have penfield installed (that is
+            # why we are relocating at all): carry our own location across so
+            # the re-exec finds this module. Without this, every pipx install
+            # dies here with ModuleNotFoundError on first run.
+            try:
+                pkgdir = os.path.dirname(os.path.realpath(__file__))
+            except NameError:
+                pkgdir = ""
+            if pkgdir:
+                prev = os.environ.get("PYTHONPATH", "")
+                os.environ["PYTHONPATH"] = pkgdir + (os.pathsep + prev if prev else "")
             os.execv(cand, [cand, me] + sys.argv[1:])
     sys.stderr.write(
         "penfield: mempalace package not importable (tried system python, "
