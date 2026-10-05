@@ -23,7 +23,7 @@ import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
 
-VERSION = "0.1.4"
+VERSION = "0.1.5"
 DEFAULT_PORT = 8766
 
 
@@ -65,90 +65,129 @@ def ensure_mempalace() -> None:
 
 
 INDEX_HTML = r"""<!doctype html>
-<html lang="en" data-theme="light"><head><meta charset="utf-8">
+<html lang="en" data-theme="dark"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>penfield</title>
 <style>
-body{font-family:system-ui,sans-serif;max-width:760px;margin:2em auto;padding:0 1em;color:#222}
-h1{font-size:1.4em}h2{font-size:1.1em;margin-top:1.2em}
-nav{margin:1em 0}nav button{margin-right:.4em;padding:.35em .8em;cursor:pointer}
-nav button.on{font-weight:bold}
-section{display:none}section.on{display:block}
-.wing{margin:.4em 0}.room{color:#666;font-size:.9em}
-.ev{margin:.3em 0;font-size:.92em}.ev i{color:#666}
-.bar{fill:#369}.bar.dim{fill:#999}.lbl{font-size:10px;fill:#666}
-a{color:#06c;text-decoration:none}
-progress{width:100%;margin:.4em 0}
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:.8em}
-.cards article{border:1px solid #ccc;border-radius:6px;padding:.8em}
-.cards h3{margin:.2em 0;font-size:1em}
-footer{margin-top:2em;color:#666;font-size:.85em}
+:root{--bg:#0d1117;--panel:#161b22;--line:#30363d;--txt:#e6edf3;--mut:#8b949e;--acc:#58a6ff;--grn:#3fb950;--gry:#6e7681;--amb:#d29922}
+*{box-sizing:border-box}
+body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--txt);max-width:900px;margin:0 auto;padding:1.2em 1em 3em}
+header h1{font-size:1.5em;margin:.2em 0}header h1 small{color:var(--mut);font-weight:normal}
+header p{color:var(--mut);margin:.2em 0 1em}
+nav{display:flex;gap:.4em;flex-wrap:wrap;margin-bottom:1em}
+nav button{background:var(--panel);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:.45em 1em;cursor:pointer;font-size:.95em}
+nav button.on{background:var(--acc);border-color:var(--acc);color:#04121f;font-weight:bold}
+section{display:none;animation:fade .25s ease-out}
+section.on{display:block}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+h2{font-size:1.15em;margin:1em 0 .5em}h3{font-size:1em;color:var(--mut);margin:1.2em 0 .4em}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:.7em}
+.cards article{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:.9em}
+.cards h3{margin:.1em 0 .3em;color:var(--txt)}.cards p{color:var(--mut);font-size:.9em;margin:.2em 0 .7em}
+button,.btn{background:var(--acc);border:none;border-radius:6px;color:#04121f;padding:.4em .9em;cursor:pointer;font-size:.9em}
+button.ghost{background:transparent;border:1px solid var(--line);color:var(--txt)}
+select,input{background:var(--panel);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:.35em .6em}
+.ev{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:.55em .8em;margin:.45em 0;font-size:.92em;cursor:pointer}
+.ev:hover{border-color:var(--acc)}
+.ev .meta{color:var(--mut);font-size:.85em}
+.ev time{color:var(--mut)}
+.tag{display:inline-block;font-size:.75em;border:1px solid var(--line);border-radius:4px;padding:0 .4em;margin-right:.3em;color:var(--mut)}
+.tag.cur{color:var(--grn);border-color:var(--grn)}.tag.old{color:var(--gry)}
+progress{width:100%;height:8px;margin:.4em 0;accent-color:var(--acc)}
+.statusline{color:var(--mut);font-size:.88em;min-height:1.4em}
+canvas#kg{width:100%;background:var(--panel);border:1px solid var(--line);border-radius:10px;cursor:grab}
+table.meta{border-collapse:collapse;font-size:.88em;width:100%}
+table.meta td{border-bottom:1px solid var(--line);padding:.3em .5em;vertical-align:top}
+table.meta td:first-child{color:var(--mut);white-space:nowrap;width:110px}
+pre.full{white-space:pre-wrap;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:.9em;font-size:.9em;line-height:1.5}
+.bar{fill:var(--acc)}.lbl{font-size:10px;fill:var(--mut)}
+footer{margin-top:2.5em;color:var(--mut);font-size:.82em;border-top:1px solid var(--line);padding-top:1em}
+.count{display:inline-block;min-width:3ch}
+@media (max-width:600px){body{padding:.8em}.cards{grid-template-columns:1fr}}
 </style></head><body>
 <header>
 <h1>&#x25c8; penfield <small id="v"></small></h1>
 <p>Local-first MemPalace browser. Read-only, always. <span id="health"></span></p>
 </header>
 <nav aria-label="Views">
-<button data-s="welcome" class="on">Welcome</button><button data-s="timeline">Timeline</button><button data-s="graph">Graph</button><button data-s="wings">Wings</button><button data-s="stats">Stats</button>
+<button data-s="welcome" class="on">Welcome</button><button data-s="timeline">Timeline</button><button data-s="graph">Graph</button><button data-s="wings">Wings</button><button data-s="stats">Stats</button><button data-s="inspector" id="nav-inspector" style="display:none">Inspector</button>
 </nav>
 <main>
 <section id="s-welcome" class="on" aria-labelledby="h-welcome">
 <h2 id="h-welcome">Welcome</h2>
 <div class="cards">
-<article><h3>Timeline</h3><p>Drawer filings, diary entries and KG fact lifecycles, newest first.</p><button data-go="timeline">Open</button></article>
-<article><h3>Graph</h3><p>Knowledge-graph nodes and edges: current vs expired, click a node for its facts.</p><button data-go="graph">Open</button></article>
-<article><h3>Wings</h3><p>Palace taxonomy: wings, rooms, drawer counts.</p><button data-go="wings">Open</button></article>
-<article><h3>Stats</h3><p>Filings per day and drawers per wing.</p><button data-go="stats">Open</button></article>
+<article><h3>&#x25a3; Timeline</h3><p>Drawer filings, diary entries and KG fact lifecycles, newest first. Click anything to inspect it.</p><button data-go="timeline">Open</button></article>
+<article><h3>&#x21d2; Graph</h3><p>Knowledge-graph nodes and edges: current vs expired, live layout, click a node for its facts.</p><button data-go="graph">Open</button></article>
+<article><h3>&#x25c8; Wings</h3><p>Palace taxonomy: wings, rooms, drawer counts.</p><button data-go="wings">Open</button></article>
+<article><h3>&#x25a4; Stats</h3><p>Filings per day, top entities, biggest rooms, latest diary.</p><button data-go="stats">Open</button></article>
 </div>
-<p>Nothing loads until you open a view — this page starts empty on purpose.</p>
+<p class="statusline">Nothing loads until you open a view — this page starts empty on purpose.</p>
 </section>
 <section id="s-timeline" aria-labelledby="h-timeline">
 <h2 id="h-timeline">Timeline</h2>
 <div><label>wing: <select id="wing"><option value="">all</option></select></label></div>
 <progress id="pg-tl" max="100" value="0" hidden></progress>
-<div id="st-tl" role="status"></div>
+<div id="st-tl" class="statusline" role="status"></div>
 <div id="tl"></div>
 </section>
 <section id="s-graph" aria-labelledby="h-graph">
 <h2 id="h-graph">Knowledge graph</h2>
 <div><label><input type="checkbox" id="kgcur" checked> only current</label>
 <button id="kgload">load graph</button></div>
-<progress id="pg-kg" max="100" value="0" hidden></progress>
-<figure>
-<canvas id="kg" width="680" height="420" style="border:1px solid #ccc;max-width:100%"></canvas>
-<figcaption>Force-directed layout, computed locally. Blue: current facts, grey: expired.</figcaption>
+<figure style="margin:.6em 0">
+<canvas id="kg" width="680" height="420"></canvas>
+<figcaption style="color:var(--mut);font-size:.85em">Live force layout, drag nodes. Blue: current facts, grey: expired.</figcaption>
 </figure>
 <div id="kgfacts" style="font-size:.9em"></div>
 </section>
 <section id="s-wings" aria-labelledby="h-wings">
 <h2 id="h-wings">Wings</h2>
 <progress id="pg-wings" max="100" value="0" hidden></progress>
-<div id="st-wings" role="status"></div>
+<div id="st-wings" class="statusline" role="status"></div>
 <div id="wings"></div>
 </section>
 <section id="s-stats" aria-labelledby="h-stats">
 <h2 id="h-stats">Stats</h2>
 <progress id="pg-stats" max="100" value="0" hidden></progress>
-<div id="st-stats" role="status"></div>
+<div id="st-stats" class="statusline" role="status"></div>
 <div id="charts"></div>
+<h3>Top entities</h3><div id="entities"></div>
+<h3>Latest diary</h3><div id="diary"></div>
+</section>
+<section id="s-inspector" aria-labelledby="h-inspector">
+<h2 id="h-inspector">Inspector</h2>
+<div id="insp"></div>
+<h3>Similar drawers</h3>
+<div id="sim"></div>
 </section>
 </main>
 <footer><small>penfield is read-only: it never writes to your palace. Served from localhost.</small></footer>
 <script>
 const kindIcon = {drawer:"&#x25a3;", diary:"&#x270e;", fact:"&#x21d2;", "fact-ended":"&#x21d0;"};
 function show(sec) {
-  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x.dataset.s === sec));
+  document.querySelectorAll("nav button[data-s]").forEach(x => x.classList.toggle("on", x.dataset.s === sec));
   document.querySelectorAll("main section").forEach(x => x.classList.toggle("on", x.id === "s-" + sec));
+  const ni = document.getElementById("nav-inspector");
+  ni.style.display = sec === "inspector" ? "" : "none";
   loadSection(sec);
 }
-document.querySelectorAll("nav button").forEach(b => b.onclick = () => show(b.dataset.s));
+document.querySelectorAll("nav button[data-s]").forEach(b => b.onclick = () => show(b.dataset.s));
 document.querySelectorAll("button[data-go]").forEach(b => b.onclick = () => show(b.dataset.go));
 const loadedSecs = {};
 function loadSection(sec) {
-  if (loadedSecs[sec]) return;
+  if (sec === "inspector" || loadedSecs[sec]) return;
   loadedSecs[sec] = true;
   if (sec === "timeline" || sec === "wings") loadTaxonomy();
   if (sec === "stats") loadStats();
+}
+function animateCount(el, to) {
+  const t0 = performance.now(), dur = 600;
+  function step(t) {
+    const f = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - f, 3);
+    el.textContent = Math.round(to * e).toLocaleString();
+    if (f < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
 }
 // NDJSON stream reader: real progress (offset/total), never a spinner.
 async function fetchStream(url, pg, st, label) {
@@ -179,18 +218,24 @@ async function fetchStream(url, pg, st, label) {
   if (st) st.textContent = "";
   return result;
 }
+function evHtml(e) {
+  return `<article class="ev" data-id="${e.id || ""}" data-kind="${e.kind}"><span title="${e.kind}">${kindIcon[e.kind]||"&#x25a3;"}</span> ` +
+    `<time datetime="${e.t||""}">${(e.t||"").slice(0,16).replace("T"," ")}</time> ` +
+    (e.wing ? `<span class="meta">${e.wing}${e.room ? "/" + e.room : ""}</span> ` : "") +
+    `${(e.text||"").slice(0,140)}</article>`;
+}
+function wireInspector(root) {
+  root.querySelectorAll(".ev[data-id]").forEach(el => el.onclick = () => inspectDrawer(el.dataset.id));
+}
 function loadTimeline(wing) {
   const st = document.getElementById("st-tl");
   st.textContent = "loading…";
   fetch("api/timeline?limit=60" + (wing ? "&wing=" + encodeURIComponent(wing) : "")).then(r=>r.json()).then(t=>{
-    st.textContent = "";
+    st.textContent = t.events ? t.events.length + " events" : "";
     const el = document.getElementById("tl");
     if (!t.events || !t.events.length) { el.textContent = "nothing here yet."; return; }
-    el.innerHTML = t.events.map(e =>
-      `<article class="ev"><span title="${e.kind}">${kindIcon[e.kind]||"&#x25a3;"}</span> ` +
-      `<time datetime="${e.t||""}"><b>${(e.t||"").slice(0,16).replace("T"," ")}</b></time> ` +
-      (e.wing ? `<i>${e.wing}${e.room ? "/" + e.room : ""}</i> ` : "") +
-      `${(e.text||"").slice(0,140)}</article>`).join("");
+    el.innerHTML = t.events.map(evHtml).join("");
+    wireInspector(el);
   }).catch(e => { st.textContent = "error: " + e; });
 }
 let taxCache = null;
@@ -200,23 +245,51 @@ function renderTaxonomy(t) {
   const sel = document.getElementById("wing");
   if (sel.options.length <= 1) t.wings.forEach(w => { const o = document.createElement("option"); o.value = o.textContent = w.name; sel.appendChild(o); });
   sel.onchange = () => { loadTimeline(sel.value); };
-  document.getElementById("wings").innerHTML = t.wings.map(w =>
-    `<article class="wing"><b>${w.name}</b> — ${w.drawers} drawers` +
-    w.rooms.map(r => `<div class="room">&nbsp;&nbsp;${r.name}: ${r.drawers}</div>`).join("") +
+  const total = t.drawers;
+  document.getElementById("wings").innerHTML =
+    `<p><span class="count" id="wtotal">0</span> drawers across ${t.wings.length} wings</p>` +
+    t.wings.map(w =>
+    `<article class="wing"><b>${w.name}</b> — ${w.drawers.toLocaleString()} drawers` +
+    w.rooms.map(r => `<div class="room">&nbsp;&nbsp;${r.name}: ${r.drawers.toLocaleString()}</div>`).join("") +
     `</article>`).join("");
+  animateCount(document.getElementById("wtotal"), total);
 }
 function loadTaxonomy() {
   const pg = document.getElementById("pg-wings"), st = document.getElementById("st-wings");
-  const pg2 = document.getElementById("pg-tl"), st2 = document.getElementById("st-tl");
-  pg.hidden = false; pg2.hidden = false;
   fetchStream("api/taxonomy?stream=1", pg, st, "scanning").then(t => {
     renderTaxonomy(t);
     loadTimeline("");
   }).catch(e => {
     document.getElementById("wings").textContent = "error: " + e;
     document.getElementById("tl").textContent = "error: " + e;
-  }).finally(() => { pg2.hidden = true; });
-}// --- force-directed KG on canvas: fixed iterations, no dependencies ------
+  });
+}
+function inspectDrawer(id) {
+  if (!id) return;
+  show("inspector");
+  const box = document.getElementById("insp"), sim = document.getElementById("sim");
+  box.innerHTML = "loading…"; sim.innerHTML = "";
+  fetch("api/drawer?id=" + encodeURIComponent(id)).then(r=>r.json()).then(d=>{
+    if (!d.ok) { box.textContent = d.error || "not found"; return; }
+    box.innerHTML =
+      `<table class="meta">` +
+      `<tr><td>wing / room</td><td>${d.wing||"?"} / ${d.room||"?"}</td></tr>` +
+      `<tr><td>filed</td><td><time datetime="${d.filed_at||""}">${(d.filed_at||"").slice(0,16).replace("T"," ")}</time></td></tr>` +
+      (d.source_file ? `<tr><td>source</td><td>${d.source_file.split("/").pop()}</td></tr>` : "") +
+      (d.entities ? `<tr><td>entities</td><td>${d.entities}</td></tr>` : "") +
+      `</table><pre class="full"></pre>`;
+    box.querySelector("pre").textContent = d.text || "(empty)";
+    fetch("api/similar?id=" + encodeURIComponent(id) + "&n=5").then(r=>r.json()).then(s=>{
+      if (!s.ok || !s.similar.length) { sim.textContent = "no similar drawers found."; return; }
+      sim.innerHTML = s.similar.map(x =>
+        `<article class="ev" data-id="${x.id}"><span class="meta">${x.wing}/${x.room}` +
+        (x.distance != null ? ` · d=${x.distance}` : "") + `</span> ${(x.preview||"").slice(0,140)}</article>`).join("");
+      wireInspector(sim);
+    }).catch(e => { sim.textContent = "error: " + e; });
+  }).catch(e => { box.textContent = "error: " + e; });
+}
+// --- live force-directed KG: rAF loop with cooling + drag, no deps ---
+let kgAnim = null;
 function drawKG(nodes, edges) {
   const cv = document.getElementById("kg"), ctx = cv.getContext("2d");
   const W = cv.width, H = cv.height, N = nodes.length;
@@ -226,62 +299,87 @@ function drawKG(nodes, edges) {
     n.vx = 0; n.vy = 0; n.r = 4 + Math.sqrt(n.count) * 2;
   });
   const idx = Object.fromEntries(nodes.map((n, i) => [n.id, i]));
-  for (let it = 0; it < 160; it++) {
-    for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) {
-      const a = nodes[i], b = nodes[j];
-      let dx = a.x - b.x, dy = a.y - b.y, d2 = dx * dx + dy * dy + 40;
-      const f = 900 / d2, d = Math.sqrt(d2);
-      dx /= d; dy /= d; a.vx += dx * f; a.vy += dy * f; b.vx -= dx * f; b.vy -= dy * f;
-    }
-    edges.forEach(e => {
-      const a = nodes[idx[e.s]], b = nodes[idx[e.o]];
-      if (!a || !b) return;
-      const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1;
-      const f = (d - 70) * 0.02;
-      a.vx += dx / d * f; a.vy += dy / d * f; b.vx -= dx / d * f; b.vy -= dy / d * f;
-    });
-    nodes.forEach(n => {
-      n.vx *= 0.85; n.vy *= 0.85;
-      n.x = Math.min(W - 10, Math.max(10, n.x + n.vx));
-      n.y = Math.min(H - 10, Math.max(10, n.y + n.vy));
-    });
-  }
-  function paint(sel) {
+  let sel = null, drag = null, heat = 1;
+  function paint() {
     ctx.clearRect(0, 0, W, H);
     edges.forEach(e => {
       const a = nodes[idx[e.s]], b = nodes[idx[e.o]];
       if (!a || !b) return;
       const hot = sel && (e.s === sel || e.o === sel);
-      ctx.strokeStyle = hot ? "#06c" : (e.current ? "#bbd" : "#ddd");
+      ctx.strokeStyle = hot ? "#58a6ff" : (e.current ? "#1f6feb" : "#30363d");
       ctx.lineWidth = hot ? 2 : 1;
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
     });
     nodes.forEach(n => {
-      ctx.fillStyle = n.id === sel ? "#06c" : (n.current ? "#369" : "#999");
+      ctx.fillStyle = n.id === sel ? "#58a6ff" : (n.current ? "#3fb950" : "#6e7681");
       ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, 7); ctx.fill();
       if (n.id === sel || n.count >= 3) {
-        ctx.fillStyle = "#222"; ctx.font = "11px system-ui";
+        ctx.fillStyle = "#e6edf3"; ctx.font = "11px system-ui";
         ctx.fillText(n.id.slice(0, 24), n.x + n.r + 3, n.y + 4);
       }
     });
   }
-  paint(null);
-  cv.onclick = ev => {
+  function tick() {
+    for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) {
+      const a = nodes[i], b = nodes[j];
+      let dx = a.x - b.x, dy = a.y - b.y, d2 = dx * dx + dy * dy + 40;
+      const f = 900 / d2 * heat, d = Math.sqrt(d2);
+      dx /= d; dy /= d; a.vx += dx * f; a.vy += dy * f; b.vx -= dx * f; b.vy -= dy * f;
+    }
+    edges.forEach(e => {
+      const a = nodes[idx[e.s]], b = nodes[idx[e.o]];
+      if (!a || !b || a === drag || b === drag) return;
+      const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1;
+      const f = (d - 70) * 0.02;
+      a.vx += dx / d * f; a.vy += dy / d * f; b.vx -= dx / d * f; b.vy -= dy / d * f;
+    });
+    nodes.forEach(n => {
+      if (n === drag) return;
+      n.vx *= 0.85; n.vy *= 0.85;
+      n.x = Math.min(W - 10, Math.max(10, n.x + n.vx));
+      n.y = Math.min(H - 10, Math.max(10, n.y + n.vy));
+    });
+    paint();
+    heat *= 0.995;
+    if (heat > 0.02) kgAnim = requestAnimationFrame(tick);
+    else kgAnim = null;
+  }
+  function pos(ev) {
     const r = cv.getBoundingClientRect();
-    const mx = (ev.clientX - r.left) * (W / r.width), my = (ev.clientY - r.top) * (H / r.height);
+    return [(ev.clientX - r.left) * (W / r.width), (ev.clientY - r.top) * (H / r.height)];
+  }
+  function pick(mx, my) {
     let best = null, bd = 1e9;
     nodes.forEach(n => { const d = (n.x - mx) ** 2 + (n.y - my) ** 2; if (d < bd) { bd = d; best = n; } });
-    if (!best || bd > 900) return;
-    paint(best.id);
+    return bd < 900 ? best : null;
+  }
+  cv.onmousedown = ev => { const [mx, my] = pos(ev); const n = pick(mx, my); if (n) { drag = n; heat = Math.max(heat, 0.4); } };
+  window.onmouseup = () => { drag = null; };
+  cv.onmousemove = ev => {
+    if (!drag) return;
+    const [mx, my] = pos(ev);
+    drag.x = Math.min(W - 10, Math.max(10, mx)); drag.y = Math.min(H - 10, Math.max(10, my));
+    drag.vx = 0; drag.vy = 0;
+  };
+  cv.onclick = ev => {
+    if (drag) return;
+    const [mx, my] = pos(ev);
+    const best = pick(mx, my);
+    sel = best ? best.id : null;
+    paint();
+    if (!best) { document.getElementById("kgfacts").textContent = ""; return; }
     const facts = edges.filter(e => e.s === best.id || e.o === best.id);
     document.getElementById("kgfacts").innerHTML =
       `<b>${best.id}</b> (${best.count} facts)<br>` + facts.map(e =>
         `${e.s} &rarr; <b>${e.p}</b> &rarr; ${e.o}` + (e.current ? "" : ` <i>(ended${e.to ? " " + e.to.slice(0, 10) : ""})</i>`)
       ).join("<br>");
   };
+  if (kgAnim) cancelAnimationFrame(kgAnim);
+  tick();
 }
 document.getElementById("kgload").onclick = () => {
   const cur = document.getElementById("kgcur").checked;
+  document.getElementById("kgfacts").textContent = "loading…";
   fetch("api/kg?limit=500").then(r=>r.json()).then(g=>{
     let edges = g.edges || [];
     if (cur) edges = edges.filter(e => e.current);
@@ -289,12 +387,12 @@ document.getElementById("kgload").onclick = () => {
     edges.forEach(e => { keep.add(e.s); keep.add(e.o); });
     drawKG(g.nodes.filter(n => keep.has(n.id)), edges);
     document.getElementById("kgfacts").textContent =
-      g.missing ? "no knowledge graph here." : `${edges.length} facts, click a node.`;
+      g.missing ? "no knowledge graph here." : `${edges.length} facts, drag nodes, click one.`;
   }).catch(e => { document.getElementById("kgfacts").textContent = "error: " + e; });
 };
 function svgBars(rows, val, maxv, w, h, bh) {
   const bw = Math.max(2, Math.floor(w / Math.max(1, rows.length)) - 2);
-  let s = `<svg width="${w}" height="${h}" role="img">`;
+  let s = `<svg width="${w}" height="${h}" role="img" style="max-width:100%">`;
   rows.forEach((r, i) => {
     const bhgt = maxv ? Math.round((r[val] / maxv) * bh) : 0;
     const x = i * (bw + 2), y = h - 20 - bhgt;
@@ -305,9 +403,20 @@ function svgBars(rows, val, maxv, w, h, bh) {
 }
 function loadStats() {
   const pg = document.getElementById("pg-stats"), st = document.getElementById("st-stats");
-  fetchStream("api/stats?days=30&stream=1", pg, st, "scanning").then(renderStats).catch(e => {
-    document.getElementById("charts").textContent = "error: " + e;
-  });
+  fetchStream("api/stats?days=30&stream=1", pg, st, "scanning").then(t => {
+    renderStats(t);
+    Promise.all([
+      fetch("api/entities?limit=12").then(r=>r.json()),
+      fetch("api/diary?limit=3").then(r=>r.json()),
+    ]).then(([en, di]) => {
+      document.getElementById("entities").innerHTML = (en.entities || []).map(x =>
+        `<span class="tag${x.current ? " cur" : " old"}" title="${x.facts} facts">${x.entity} ×${x.facts}</span>`).join(" ") || "none";
+      document.getElementById("diary").innerHTML = (di.entries || []).map(e =>
+        `<article class="ev" data-id="${e.id}"><time datetime="${e.t||""}">${(e.t||"").slice(0,16).replace("T"," ")}</time> ` +
+        `<span class="meta">${e.wing||""}</span> ${(e.text||"").slice(0,160)}</article>`).join("") || "none";
+      wireInspector(document.getElementById("diary"));
+    }).catch(e => { document.getElementById("entities").textContent = "error: " + e; });
+  }).catch(e => { document.getElementById("charts").textContent = "error: " + e; });
 }
 function renderStats(st) {
   const days = st.by_day || [];
@@ -315,19 +424,17 @@ function renderStats(st) {
   const maxf = Math.max(1, ...days.map(d => d.facts));
   const wings = (taxCache ? taxCache.wings : []).slice().sort((a, b) => b.drawers - a.drawers).slice(0, 12);
   const maxw = Math.max(1, ...wings.map(w => w.drawers));
-  let h = "<figure><figcaption>Filings per day (30d)</figcaption>" + svgBars(days, "drawers", maxv, 680, 150, 120) + "</figure>";
-  h += "<figure><figcaption>KG facts per day</figcaption>" + svgBars(days, "facts", maxf, 680, 120, 90) + "</figure>";
+  const tot = days.reduce((a, d) => a + d.drawers, 0);
+  let h = `<p><span class="count" id="stotal">0</span> filings in 30 days</p>`;
+  h += "<h3>Filings per day</h3>" + svgBars(days, "drawers", maxv, 680, 150, 120);
+  h += "<h3>KG facts per day</h3>" + svgBars(days, "facts", maxf, 680, 120, 90);
   h += "<h3>Drawers per wing</h3>";
   wings.forEach(w => {
     const pct = Math.round((w.drawers / maxw) * 100);
-    h += `<div style="font-size:.9em">${w.name} <span style="display:inline-block;background:#369;height:10px;width:${Math.max(1, pct * 3)}px"></span> ${w.drawers}</div>`;
+    h += `<div style="font-size:.9em">${w.name} <span class="bar" style="display:inline-block;height:10px;width:${Math.max(2, pct * 3)}px"></span> ${w.drawers.toLocaleString()}</div>`;
   });
   document.getElementById("charts").innerHTML = h;
-  if (!taxCache) fetch("api/taxonomy").then(r=>r.json()).then(t => {
-    taxCache = t;
-    document.getElementById("v").textContent = "v" + t.version;
-    renderStats(st);
-  });
+  animateCount(document.getElementById("stotal"), tot);
 }
 // health only: fast, no scan — the welcome page stays empty otherwise.
 fetch("api/health").then(r=>r.json()).then(h=>{
@@ -335,7 +442,10 @@ fetch("api/health").then(r=>r.json()).then(h=>{
   document.getElementById("health").textContent = h.palace;
 }).catch(()=>{});
 </script></body></html>
+
+
 """
+
 
 
 def stream_ndjson(handler, gen) -> None:
@@ -418,6 +528,41 @@ class Handler(BaseHTTPRequestHandler):
                         limit=min(int((qs.get("limit") or [500])[0]), 2000),
                     )
                 )
+            except Exception as exc:  # noqa: BLE001
+                self._json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, 500)
+        elif parsed.path == "/api/drawer":
+            try:
+                qs = parse_qs(parsed.query or "")
+                did = (qs.get("id") or [""])[0]
+                if not did:
+                    self._json({"ok": False, "error": "usage: /api/drawer?id=DRAWER_ID"}, 400)
+                else:
+                    self._json(drawer_by_id(self.server.palace_path, did))  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001
+                self._json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, 500)
+        elif parsed.path == "/api/similar":
+            try:
+                qs = parse_qs(parsed.query or "")
+                did = (qs.get("id") or [""])[0]
+                n = min(int((qs.get("n") or [5])[0]), 20)
+                if not did:
+                    self._json({"ok": False, "error": "usage: /api/similar?id=DRAWER_ID&n=5"}, 400)
+                else:
+                    self._json(similar_to(self.server.palace_path, did, n))  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001
+                self._json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, 500)
+        elif parsed.path == "/api/diary":
+            try:
+                qs = parse_qs(parsed.query or "")
+                n = min(int((qs.get("limit") or [5])[0]), 50)
+                self._json(recent_diary(self.server.palace_path, n))  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001
+                self._json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, 500)
+        elif parsed.path == "/api/entities":
+            try:
+                qs = parse_qs(parsed.query or "")
+                n = min(int((qs.get("limit") or [15])[0]), 100)
+                self._json(top_entities(self.server.palace_path, n))  # type: ignore[attr-defined]
             except Exception as exc:  # noqa: BLE001
                 self._json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, 500)
         elif parsed.path == "/api/stats":
@@ -532,6 +677,83 @@ def taxonomy_scan(palace_path: str):
             for w in sorted(wings)
         ],
     }}
+
+
+
+def _unwrap(res):
+    """chroma returns dicts or objects depending on path — normalize once."""
+    if isinstance(res, dict):
+        return (res.get("ids") or [], res.get("metadatas") or [], res.get("documents") or [],
+                res.get("embeddings"), res.get("distances"))
+    get = lambda k: getattr(res, k, None)  # noqa: E731
+    return (get("ids") or [], get("metadatas") or [], get("documents") or [],
+            get("embeddings"), get("distances"))
+
+
+def drawer_by_id(palace_path: str, drawer_id: str) -> dict:
+    col = open_collection(palace_path)
+    ids, metas, docs, _, _ = _unwrap(col.get(ids=[drawer_id], include=["metadatas", "documents"]))
+    if not ids:
+        return {"ok": False, "error": "drawer not found"}
+    m = metas[0] or {}
+    return {"ok": True, "id": ids[0], "wing": m.get("wing"), "room": m.get("room"),
+            "filed_at": m.get("filed_at"), "authored_at": m.get("authored_at"),
+            "source_file": m.get("source_file"), "entities": m.get("entities"),
+            "text": docs[0] if docs else ""}
+
+
+def similar_to(palace_path: str, drawer_id: str, n: int = 5) -> dict:
+    col = open_collection(palace_path)
+    ids, metas, docs, emb, _ = _unwrap(col.get(ids=[drawer_id], include=["metadatas", "documents", "embeddings"]))
+    if not ids or emb is None:
+        return {"ok": False, "error": "drawer not found or has no embedding"}
+    vec = emb[0]
+    if hasattr(vec, "tolist"):
+        vec = vec.tolist()
+    qids, qmetas, qdocs, _, dists = _unwrap(col.query(
+        query_embeddings=[list(vec)], n_results=n + 1, include=["metadatas", "documents", "distances"]))
+    out = []
+    for i, m, d in zip(qids[0] if qids and isinstance(qids[0], list) else [], qmetas[0] if qmetas else [], qdocs[0] if qdocs else []):
+        if i == drawer_id:
+            continue
+        m = m or {}
+        dist = None
+        try:
+            dist = round(float((dists[0] if dists else [])[len(out)]), 3) if dists else None
+        except Exception:
+            pass
+        out.append({"id": i, "wing": m.get("wing"), "room": m.get("room"),
+                    "filed_at": m.get("filed_at"), "preview": (d or "")[:160], "distance": dist})
+        if len(out) >= n:
+            break
+    return {"ok": True, "id": drawer_id, "similar": out}
+
+
+def recent_diary(palace_path: str, n: int = 5) -> dict:
+    col = open_collection(palace_path)
+    ids, metas, docs, _, _ = _unwrap(col.get_recent(
+        limit=n, where={"room": "diary"}, include=["metadatas", "documents"]))
+    return {"ok": True, "entries": [
+        {"id": i, "wing": (m or {}).get("wing"), "t": (m or {}).get("filed_at") or (m or {}).get("authored_at"),
+         "topic": None, "text": (d or "")[:300]}
+        for i, m, d in zip(ids, metas, docs)]}
+
+
+def top_entities(palace_path: str, n: int = 15) -> dict:
+    import sqlite3
+
+    try:
+        db = sqlite3.connect(f"file:{kg_path(palace_path)}?mode=ro", uri=True, timeout=5)
+        try:
+            rows = db.execute(
+                "SELECT subject, COUNT(*), SUM(valid_to IS NULL) FROM triples "
+                "GROUP BY subject ORDER BY COUNT(*) DESC LIMIT ?", (n,)).fetchall()
+        finally:
+            db.close()
+    except Exception:
+        return {"ok": True, "entities": [], "missing": True}
+    return {"ok": True, "entities": [
+        {"entity": s, "facts": c, "current": bool(cur)} for s, c, cur in rows]}
 
 
 def kg_graph(palace_path: str, limit: int = 500) -> dict:
@@ -677,35 +899,27 @@ def timeline(palace_path: str, wing: str | None = None, limit: int = 200) -> dic
 
     events: list = []
     col = open_collection(palace_path)
-    where = {"wing": wing} if wing else None
-    got = 0
-    offset = 0
-    step = 5000
-    while got < limit:
-        res = col.get(where=where, limit=min(step, limit - got), offset=offset, include=["metadatas", "documents"])
-        metas = res.get("metadatas") or []
-        docs = res.get("documents") or []
-        if not metas:
-            break
-        for m, d in zip(metas, docs):
-            t = m.get("filed_at") or m.get("authored_at")
-            if not t:
-                continue
-            room = m.get("room") or "?"
-            events.append(
-                {
-                    "t": t,
-                    "kind": "diary" if room == "diary" else "drawer",
-                    "wing": m.get("wing") or "?",
-                    "room": room,
-                    "text": (d or "")[:220],
-                    "source": (m.get("source_file") or "").split("/")[-1] or None,
-                }
-            )
-            got += 1
-        offset += len(metas)
-        if len(metas) < step:
-            break
+    # Newest-first straight from the backend: no full scan for a page.
+    ids, metas, docs, _, _ = _unwrap(col.get_recent(
+        limit=limit, where=({"wing": wing} if wing else None),
+        include=["metadatas", "documents"]))
+    for i, m, d in zip(ids, metas, docs):
+        m = m or {}
+        t = m.get("filed_at") or m.get("authored_at")
+        if not t:
+            continue
+        room = m.get("room") or "?"
+        events.append(
+            {
+                "id": i,
+                "t": t,
+                "kind": "diary" if room == "diary" else "drawer",
+                "wing": m.get("wing") or "?",
+                "room": room,
+                "text": (d or "")[:220],
+                "source": (m.get("source_file") or "").split("/")[-1] or None,
+            }
+        )
     try:
         db = sqlite3.connect(f"file:{kg_path(palace_path)}?mode=ro", uri=True, timeout=5)
         try:

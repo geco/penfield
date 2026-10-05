@@ -26,4 +26,6 @@ All JSON, all read-only: `/api/health`, `/api/taxonomy`, `/api/timeline?wing=&li
 
 ## Status
 
+v0.1.5: dark theme, inspector + similar, live KG, top entities, diary feed.
+
 v0.1.2: timeline, KG graph, wings, stats. Next: drawer inspector with semantic-similar lookup.
