@@ -66,12 +66,94 @@ a{color:#06c;text-decoration:none}
 </style></head><body>
 <h1>&#x25c8; penfield <small id="v"></small></h1>
 <p>Local-first MemPalace browser. Read-only, always.</p>
+<h2>Knowledge graph</h2>
+<div><label><input type="checkbox" id="kgcur" checked> only current</label>
+<button id="kgload">load graph</button></div>
+<canvas id="kg" width="680" height="420" style="border:1px solid #ccc;max-width:100%"></canvas>
+<div id="kgfacts" style="font-size:.9em"></div>
 <h2>Timeline</h2>
 <div><label>wing: <select id="wing"><option value="">all</option></select></label></div>
 <div id="tl">loading&hellip;</div>
 <h2>Wings</h2>
 <div id="wings">loading&hellip;</div>
 <script>
+const kindIcon = {drawer:"&#x25a3;", diary:"&#x270e;", fact:"&#x21d2;", "fact-ended":"&#x21d0;"};
+// --- force-directed KG on canvas: fixed iterations, no dependencies ------
+function drawKG(nodes, edges) {
+  const cv = document.getElementById("kg"), ctx = cv.getContext("2d");
+  const W = cv.width, H = cv.height, N = nodes.length;
+  nodes.forEach((n, i) => {
+    const a = (i / Math.max(1, N)) * 2 * Math.PI;
+    n.x = W / 2 + Math.cos(a) * W * 0.32; n.y = H / 2 + Math.sin(a) * H * 0.32;
+    n.vx = 0; n.vy = 0; n.r = 4 + Math.sqrt(n.count) * 2;
+  });
+  const idx = Object.fromEntries(nodes.map((n, i) => [n.id, i]));
+  for (let it = 0; it < 160; it++) {
+    for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) {
+      const a = nodes[i], b = nodes[j];
+      let dx = a.x - b.x, dy = a.y - b.y, d2 = dx * dx + dy * dy + 40;
+      const f = 900 / d2, d = Math.sqrt(d2);
+      dx /= d; dy /= d; a.vx += dx * f; a.vy += dy * f; b.vx -= dx * f; b.vy -= dy * f;
+    }
+    edges.forEach(e => {
+      const a = nodes[idx[e.s]], b = nodes[idx[e.o]];
+      if (!a || !b) return;
+      const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1;
+      const f = (d - 70) * 0.02;
+      a.vx += dx / d * f; a.vy += dy / d * f; b.vx -= dx / d * f; b.vy -= dy / d * f;
+    });
+    nodes.forEach(n => {
+      n.vx *= 0.85; n.vy *= 0.85;
+      n.x = Math.min(W - 10, Math.max(10, n.x + n.vx));
+      n.y = Math.min(H - 10, Math.max(10, n.y + n.vy));
+    });
+  }
+  function paint(sel) {
+    ctx.clearRect(0, 0, W, H);
+    edges.forEach(e => {
+      const a = nodes[idx[e.s]], b = nodes[idx[e.o]];
+      if (!a || !b) return;
+      const hot = sel && (e.s === sel || e.o === sel);
+      ctx.strokeStyle = hot ? "#06c" : (e.current ? "#bbd" : "#ddd");
+      ctx.lineWidth = hot ? 2 : 1;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    });
+    nodes.forEach(n => {
+      ctx.fillStyle = n.id === sel ? "#06c" : (n.current ? "#369" : "#999");
+      ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, 7); ctx.fill();
+      if (n.id === sel || n.count >= 3) {
+        ctx.fillStyle = "#222"; ctx.font = "11px system-ui";
+        ctx.fillText(n.id.slice(0, 24), n.x + n.r + 3, n.y + 4);
+      }
+    });
+  }
+  paint(null);
+  cv.onclick = ev => {
+    const r = cv.getBoundingClientRect();
+    const mx = (ev.clientX - r.left) * (W / r.width), my = (ev.clientY - r.top) * (H / r.height);
+    let best = null, bd = 1e9;
+    nodes.forEach(n => { const d = (n.x - mx) ** 2 + (n.y - my) ** 2; if (d < bd) { bd = d; best = n; } });
+    if (!best || bd > 900) return;
+    paint(best.id);
+    const facts = edges.filter(e => e.s === best.id || e.o === best.id);
+    document.getElementById("kgfacts").innerHTML =
+      `<b>${best.id}</b> (${best.count} facts)<br>` + facts.map(e =>
+        `${e.s} &rarr; <b>${e.p}</b> &rarr; ${e.o}` + (e.current ? "" : ` <i>(ended${e.to ? " " + e.to.slice(0, 10) : ""})</i>`)
+      ).join("<br>");
+  };
+}
+document.getElementById("kgload").onclick = () => {
+  const cur = document.getElementById("kgcur").checked;
+  fetch("api/kg?limit=500").then(r=>r.json()).then(g=>{
+    let edges = g.edges || [];
+    if (cur) edges = edges.filter(e => e.current);
+    const keep = new Set();
+    edges.forEach(e => { keep.add(e.s); keep.add(e.o); });
+    drawKG(g.nodes.filter(n => keep.has(n.id)), edges);
+    document.getElementById("kgfacts").textContent =
+      g.missing ? "no knowledge graph here." : `${edges.length} facts, click a node.`;
+  }).catch(e => { document.getElementById("kgfacts").textContent = "error: " + e; });
+};
 const kindIcon = {drawer:"&#x25a3;", diary:"&#x270e;", fact:"&#x21d2;", "fact-ended":"&#x21d0;"};
 function loadTimeline(wing) {
   fetch("api/timeline?limit=60" + (wing ? "&wing=" + encodeURIComponent(wing) : "")).then(r=>r.json()).then(t=>{
@@ -142,6 +224,17 @@ class Handler(BaseHTTPRequestHandler):
                 )
             except Exception as exc:  # noqa: BLE001
                 self._json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, 500)
+        elif parsed.path == "/api/kg":
+            try:
+                qs = parse_qs(parsed.query or "")
+                self._json(
+                    kg_graph(
+                        self.server.palace_path,  # type: ignore[attr-defined]
+                        limit=min(int((qs.get("limit") or [500])[0]), 2000),
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, 500)
         else:
             self._json({"ok": False, "error": "not found"}, 404)
 
@@ -192,6 +285,35 @@ def taxonomy(palace_path: str) -> dict:
             for w in sorted(wings)
         ],
     }
+
+
+def kg_graph(palace_path: str, limit: int = 500) -> dict:
+    """Knowledge-graph nodes + edges for the graph view. A fact is current
+    while valid_to is NULL — same rule `kg_stats` reports. Read-only open;
+    empty (not error) when the KG is missing."""
+    import sqlite3
+
+    nodes: dict = {}
+    edges: list = []
+    try:
+        db = sqlite3.connect(f"file:{kg_path(palace_path)}?mode=ro", uri=True, timeout=5)
+        try:
+            rows = db.execute(
+                "SELECT subject,predicate,object,valid_from,valid_to FROM triples LIMIT ?",
+                (limit,),
+            ).fetchall()
+        finally:
+            db.close()
+    except Exception:
+        return {"ok": True, "nodes": [], "edges": [], "missing": True}
+    for s, p, o, vf, vt in rows:
+        current = vt is None
+        for name in (s, o):
+            n = nodes.setdefault(name, {"id": name, "count": 0, "current": False})
+            n["count"] += 1
+            n["current"] = n["current"] or current
+        edges.append({"s": s, "p": p, "o": o, "from": vf, "to": vt, "current": current})
+    return {"ok": True, "nodes": sorted(nodes.values(), key=lambda n: -n["count"]), "edges": edges}
 
 
 def resolve_palace(explicit: str | None) -> str:
