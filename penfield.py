@@ -23,7 +23,7 @@ import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
 
-VERSION = "0.1.5"
+VERSION = "0.1.6"
 DEFAULT_PORT = 8766
 
 
@@ -164,7 +164,10 @@ footer{margin-top:2.5em;color:var(--mut);font-size:.82em;border-top:1px solid va
 <footer><small>penfield is read-only: it never writes to your palace. Served from localhost.</small></footer>
 <script>
 const kindIcon = {drawer:"&#x25a3;", diary:"&#x270e;", fact:"&#x21d2;", "fact-ended":"&#x21d0;"};
+let flightCtl = null;
 function show(sec) {
+  try { if (flightCtl) flightCtl.abort(); } catch (e) {}
+  flightCtl = new AbortController();
   document.querySelectorAll("nav button[data-s]").forEach(x => x.classList.toggle("on", x.dataset.s === sec));
   document.querySelectorAll("main section").forEach(x => x.classList.toggle("on", x.id === "s-" + sec));
   const ni = document.getElementById("nav-inspector");
@@ -192,7 +195,7 @@ function animateCount(el, to) {
 // NDJSON stream reader: real progress (offset/total), never a spinner.
 async function fetchStream(url, pg, st, label) {
   pg.hidden = false; pg.removeAttribute("value");
-  const r = await fetch(url);
+  const r = await fetch(url, {signal: flightCtl.signal});
   const reader = r.body.getReader();
   const dec = new TextDecoder();
   let buf = "", result = null;
@@ -207,7 +210,10 @@ async function fetchStream(url, pg, st, label) {
       const msg = JSON.parse(line);
       if (msg.error) throw new Error(msg.error);
       if (msg.done) { result = msg.result; continue; }
-      if (typeof msg.progress === "number") {
+      if (typeof msg.step === "number" && typeof msg.steps === "number") {
+        pg.value = Math.round((msg.step / msg.steps) * 100);
+        if (st) st.textContent = label + ": " + (msg.phase || "") + ` (${msg.step}/${msg.steps})`;
+      } else if (typeof msg.progress === "number") {
         pg.value = Math.round(msg.progress * 100);
         if (st) st.textContent = label + " " + Math.round(msg.progress * 100) + "%" +
           (msg.total ? " of " + msg.total.toLocaleString() + " drawers" : "");
@@ -228,9 +234,8 @@ function wireInspector(root) {
   root.querySelectorAll(".ev[data-id]").forEach(el => el.onclick = () => inspectDrawer(el.dataset.id));
 }
 function loadTimeline(wing) {
-  const st = document.getElementById("st-tl");
-  st.textContent = "loading…";
-  fetch("api/timeline?limit=60" + (wing ? "&wing=" + encodeURIComponent(wing) : "")).then(r=>r.json()).then(t=>{
+  const st = document.getElementById("st-tl"), pg = document.getElementById("pg-tl");
+  fetchStream("api/timeline?limit=60&stream=1" + (wing ? "&wing=" + encodeURIComponent(wing) : ""), pg, st, "timeline").then(t=>{
     st.textContent = t.events ? t.events.length + " events" : "";
     const el = document.getElementById("tl");
     if (!t.events || !t.events.length) { el.textContent = "nothing here yet."; return; }
@@ -370,9 +375,30 @@ function drawKG(nodes, edges) {
     if (!best) { document.getElementById("kgfacts").textContent = ""; return; }
     const facts = edges.filter(e => e.s === best.id || e.o === best.id);
     document.getElementById("kgfacts").innerHTML =
-      `<b>${best.id}</b> (${best.count} facts)<br>` + facts.map(e =>
-        `${e.s} &rarr; <b>${e.p}</b> &rarr; ${e.o}` + (e.current ? "" : ` <i>(ended${e.to ? " " + e.to.slice(0, 10) : ""})</i>`)
-      ).join("<br>");
+      `<b>${best.id}</b> (${best.count} facts)<br>` + facts.map((e, i) =>
+        `<div class="ev" data-drawer="${e.drawer || ""}" data-fi="${facts.indexOf(e)}" style="${e.drawer ? "cursor:pointer" : ""}">${e.s} &rarr; <b>${e.p}</b> &rarr; ${e.o}` + (e.current ? "" : ` <i>(ended${e.to ? " " + e.to.slice(0, 10) : ""})</i>`) +
+        (e.drawer ? ` <span class="meta">open &#8594;</span>` : "") + `</div>`
+      ).join("");
+    const box = document.getElementById("kgfacts");
+    box.querySelectorAll(".ev").forEach((el, i) => {
+      const e = facts[i];
+      el.style.cursor = "pointer";
+      el.onclick = () => {
+        if (e.drawer) { inspectDrawer(e.drawer); return; }
+        box.innerHTML += `<div class="statusline" id="fsearch">searching drawers about “${e.s}”…</div>`;
+        fetch("api/search?q=" + encodeURIComponent(e.s + " " + e.o) + "&n=5").then(r=>r.json()).then(sr=>{
+          const div = document.getElementById("fsearch");
+          if (!sr.ok || !sr.hits.length) { if (div) div.textContent = "no drawers mention it."; return; }
+          if (div) div.outerHTML = sr.hits.map(h =>
+            `<article class="ev" data-id="${h.id}"><span class="meta">${h.wing||""}/${h.room||""}` +
+            (h.distance != null ? ` · d=${h.distance}` : "") + `</span> ${(h.text||"").slice(0,140)}</article>`).join("");
+          wireInspector(box);
+        }).catch(err => {
+          const div = document.getElementById("fsearch");
+          if (div) div.textContent = "error: " + err;
+        });
+      };
+    });
   };
   if (kgAnim) cancelAnimationFrame(kgAnim);
   tick();
@@ -448,6 +474,12 @@ fetch("api/health").then(r=>r.json()).then(h=>{
 
 
 
+class _ClientGone(Exception):
+    """Browser went away mid-stream (tab switch, reload, close). Not an
+    error: just stop writing. Without this, every navigation paints a
+    triple traceback in the console for something the user did on purpose."""
+
+
 def stream_ndjson(handler, gen) -> None:
     """Chunked newline-delimited JSON: each scan page emits a progress
     event, the last event carries the result. The browser updates a real
@@ -460,16 +492,31 @@ def stream_ndjson(handler, gen) -> None:
 
     def emit(obj: object) -> None:
         raw = (json.dumps(obj) + "\n").encode("utf-8")
-        handler.wfile.write(f"{len(raw):X}\r\n".encode() + raw + b"\r\n")
-        handler.wfile.flush()
+        try:
+            handler.wfile.write(f"{len(raw):X}\r\n".encode() + raw + b"\r\n")
+            handler.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            raise _ClientGone()
 
     try:
         for msg in gen:
             emit(msg)
+    except _ClientGone:
+        try:
+            gen.close()
+        except Exception:
+            pass
+        return
     except Exception as exc:  # noqa: BLE001
-        emit({"error": f"{type(exc).__name__}: {exc}"})
-    handler.wfile.write(b"0\r\n\r\n")
-    handler.wfile.flush()
+        try:
+            emit({"error": f"{type(exc).__name__}: {exc}"})
+        except _ClientGone:
+            return
+    try:
+        handler.wfile.write(b"0\r\n\r\n")
+        handler.wfile.flush()
+    except (BrokenPipeError, ConnectionResetError):
+        pass
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -477,20 +524,26 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "penfield/" + VERSION
 
     def _json(self, obj: object, code: int = 200) -> None:
-        body = json.dumps(obj).encode("utf-8")
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            body = json.dumps(obj).encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def _html(self, body: str) -> None:
-        raw = body.encode("utf-8")
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(raw)))
-        self.end_headers()
-        self.wfile.write(raw)
+        try:
+            raw = body.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
@@ -510,13 +563,18 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path == "/api/timeline":
             try:
                 qs = parse_qs(parsed.query or "")
-                self._json(
-                    timeline(
-                        self.server.palace_path,  # type: ignore[attr-defined]
-                        wing=(qs.get("wing") or [None])[0],
-                        limit=min(int((qs.get("limit") or [200])[0]), 1000),
+                wing = (qs.get("wing") or [None])[0]
+                lim = min(int((qs.get("limit") or [200])[0]), 1000)
+                if "stream" in qs:
+                    stream_ndjson(self, timeline_scan(self.server.palace_path, wing, lim))  # type: ignore[arg-type]
+                else:
+                    self._json(
+                        timeline(
+                            self.server.palace_path,  # type: ignore[attr-defined]
+                            wing=wing,
+                            limit=lim,
+                        )
                     )
-                )
             except Exception as exc:  # noqa: BLE001
                 self._json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, 500)
         elif parsed.path == "/api/kg":
@@ -556,6 +614,28 @@ class Handler(BaseHTTPRequestHandler):
                 qs = parse_qs(parsed.query or "")
                 n = min(int((qs.get("limit") or [5])[0]), 50)
                 self._json(recent_diary(self.server.palace_path, n))  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001
+                self._json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, 500)
+        elif parsed.path == "/api/search":
+            try:
+                import mempalace.searcher
+                search_memories = mempalace.searcher.search_memories
+
+                qs = parse_qs(parsed.query or "")
+                q = (qs.get("q") or [""])[0]
+                n = min(int((qs.get("n") or [8])[0]), 30)
+                if not q.strip():
+                    self._json({"ok": False, "error": "usage: /api/search?q=TEXT&n=8"}, 400)
+                else:
+                    res = search_memories(q, self.server.palace_path, n_results=n)  # type: ignore[attr-defined]
+                    hits = res.get("results") or res.get("hits") or []
+                    self._json({"ok": True, "query": q, "hits": [
+                        {"id": h.get("drawer_id") or h.get("id"),
+                         "wing": h.get("wing"), "room": h.get("room"),
+                         "t": h.get("filed_at") or h.get("created_at"),
+                         "text": (h.get("text") or h.get("document") or "")[:220],
+                         "distance": h.get("distance")}
+                        for h in hits if isinstance(h, dict)]})
             except Exception as exc:  # noqa: BLE001
                 self._json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, 500)
         elif parsed.path == "/api/entities":
@@ -768,20 +848,23 @@ def kg_graph(palace_path: str, limit: int = 500) -> dict:
         db = sqlite3.connect(f"file:{kg_path(palace_path)}?mode=ro", uri=True, timeout=5)
         try:
             rows = db.execute(
-                "SELECT subject,predicate,object,valid_from,valid_to FROM triples LIMIT ?",
+                "SELECT subject,predicate,object,valid_from,valid_to,source_drawer_id FROM triples LIMIT ?",
                 (limit,),
             ).fetchall()
         finally:
             db.close()
     except Exception:
         return {"ok": True, "nodes": [], "edges": [], "missing": True}
-    for s, p, o, vf, vt in rows:
+    for s, p, o, vf, vt, sd in rows:
         current = vt is None
         for name in (s, o):
             n = nodes.setdefault(name, {"id": name, "count": 0, "current": False})
             n["count"] += 1
             n["current"] = n["current"] or current
-        edges.append({"s": s, "p": p, "o": o, "from": vf, "to": vt, "current": current})
+        e = {"s": s, "p": p, "o": o, "from": vf, "to": vt, "current": current}
+        if sd:
+            e["drawer"] = sd
+        edges.append(e)
     return {"ok": True, "nodes": sorted(nodes.values(), key=lambda n: -n["count"]), "edges": edges}
 
 
@@ -943,6 +1026,61 @@ def timeline(palace_path: str, wing: str | None = None, limit: int = 200) -> dic
         pass  # KG unreadable: timeline degrades to drawers, never fails
     events.sort(key=lambda e: e["t"], reverse=True)
     return {"ok": True, "wing": wing, "count": len(events[:limit]), "events": events[:limit]}
+
+
+def timeline_scan(palace_path: str, wing: str | None = None, limit: int = 200):
+    """Same numbers as timeline(), in 3 phases the bar can honestly show:
+    drawers loaded, KG merged, done. No invented percentages — N of 3 steps."""
+    import sqlite3
+
+    yield {"phase": "drawers", "step": 1, "steps": 3}
+    events: list = []
+    col = open_collection(palace_path)
+    ids, metas, docs, _, _ = _unwrap(col.get_recent(
+        limit=limit, where=({"wing": wing} if wing else None),
+        include=["metadatas", "documents"]))
+    for i, m, d in zip(ids, metas, docs):
+        m = m or {}
+        t = m.get("filed_at") or m.get("authored_at")
+        if not t:
+            continue
+        room = m.get("room") or "?"
+        events.append(
+            {
+                "id": i,
+                "t": t,
+                "kind": "diary" if room == "diary" else "drawer",
+                "wing": m.get("wing") or "?",
+                "room": room,
+                "text": (d or "")[:220],
+                "source": (m.get("source_file") or "").split("/")[-1] or None,
+            }
+        )
+    yield {"phase": "kg", "step": 2, "steps": 3}
+    try:
+        db = sqlite3.connect(f"file:{kg_path(palace_path)}?mode=ro", uri=True, timeout=5)
+        try:
+            rows = db.execute(
+                "SELECT subject,predicate,object,valid_from,valid_to,extracted_at FROM triples LIMIT 5000"
+            ).fetchall()
+        finally:
+            db.close()
+        for st, pr, o, vf, vt, ex in rows:
+            if ex:
+                events.append(
+                    {"t": ex, "kind": "fact", "wing": None, "room": None,
+                     "text": f"{st} → {pr} → {o}", "source": None}
+                )
+            if vt:
+                events.append(
+                    {"t": vt, "kind": "fact-ended", "wing": None, "room": None,
+                     "text": f"{st} → {pr} → {o}", "source": None}
+                )
+    except Exception:
+        pass
+    events.sort(key=lambda e: e["t"], reverse=True)
+    yield {"done": True, "result": {"ok": True, "wing": wing,
+           "count": len(events[:limit]), "events": events[:limit]}}
 
 
 def main(argv: list | None = None) -> int:
