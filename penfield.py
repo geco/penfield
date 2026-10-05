@@ -59,20 +59,42 @@ INDEX_HTML = """<!doctype html>
 <title>penfield</title>
 <style>
 body{font-family:system-ui,sans-serif;max-width:720px;margin:2em auto;padding:0 1em;color:#222}
-h1{font-size:1.4em}.wing{margin:.4em 0}.room{color:#666;font-size:.9em}
+h1{font-size:1.4em}h2{font-size:1.1em;margin-top:1.6em}
+.wing{margin:.4em 0}.room{color:#666;font-size:.9em}
+.ev{margin:.3em 0;font-size:.92em}.ev i{color:#666}
 a{color:#06c;text-decoration:none}
 </style></head><body>
 <h1>&#x25c8; penfield <small id="v"></small></h1>
 <p>Local-first MemPalace browser. Read-only, always.</p>
+<h2>Timeline</h2>
+<div><label>wing: <select id="wing"><option value="">all</option></select></label></div>
+<div id="tl">loading&hellip;</div>
+<h2>Wings</h2>
 <div id="wings">loading&hellip;</div>
 <script>
+const kindIcon = {drawer:"&#x25a3;", diary:"&#x270e;", fact:"&#x21d2;", "fact-ended":"&#x21d0;"};
+function loadTimeline(wing) {
+  fetch("api/timeline?limit=60" + (wing ? "&wing=" + encodeURIComponent(wing) : "")).then(r=>r.json()).then(t=>{
+    const el = document.getElementById("tl");
+    if (!t.events || !t.events.length) { el.textContent = "nothing here yet."; return; }
+    el.innerHTML = t.events.map(e =>
+      `<div class="ev"><span title="${e.kind}">${kindIcon[e.kind]||"&#x25a3;"}</span> ` +
+      `<b>${(e.t||"").slice(0,16).replace("T"," ")}</b> ` +
+      (e.wing ? `<i>${e.wing}${e.room ? "/" + e.room : ""}</i> ` : "") +
+      `${(e.text||"").slice(0,140)}</div>`).join("");
+  }).catch(e => { document.getElementById("tl").textContent = "error: " + e; });
+}
 fetch("api/taxonomy").then(r=>r.json()).then(t=>{
   document.getElementById("v").textContent = "v" + t.version;
+  const sel = document.getElementById("wing");
+  t.wings.forEach(w => { const o = document.createElement("option"); o.value = o.textContent = w.name; sel.appendChild(o); });
+  sel.onchange = () => loadTimeline(sel.value);
   const el = document.getElementById("wings");
   el.innerHTML = t.wings.map(w =>
     `<div class="wing"><b>${w.name}</b> — ${w.drawers} drawers` +
     w.rooms.map(r => `<div class="room">&nbsp;&nbsp;${r.name}: ${r.drawers}</div>`).join("") +
     `</div>`).join("");
+  loadTimeline("");
 }).catch(e => { document.getElementById("wings").textContent = "error: " + e; });
 </script></body></html>
 """
@@ -107,6 +129,18 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 self._json(taxonomy(self.server.palace_path))  # type: ignore[attr-defined]
             except Exception as exc:  # noqa: BLE001 — JSON error, never a traceback
+                self._json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, 500)
+        elif parsed.path == "/api/timeline":
+            try:
+                qs = parse_qs(parsed.query or "")
+                self._json(
+                    timeline(
+                        self.server.palace_path,  # type: ignore[attr-defined]
+                        wing=(qs.get("wing") or [None])[0],
+                        limit=min(int((qs.get("limit") or [200])[0]), 1000),
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001
                 self._json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, 500)
         else:
             self._json({"ok": False, "error": "not found"}, 404)
@@ -167,6 +201,80 @@ def resolve_palace(explicit: str | None) -> str:
     if env:
         return os.path.abspath(os.path.expanduser(env))
     return os.path.abspath(os.path.expanduser("~/.mempalace/palace"))
+
+
+def kg_path(palace_path: str) -> str:
+    """Same resolution mempalace itself uses: palace-local KG when the palace
+    was opened with an explicit path, else the default location."""
+    cand = os.path.join(palace_path, "knowledge_graph.sqlite3")
+    if os.path.isfile(cand):
+        return cand
+    return os.path.expanduser("~/.mempalace/knowledge_graph.sqlite3")
+
+
+def timeline(palace_path: str, wing: str | None = None, limit: int = 200) -> dict:
+    """Merged timeline: drawer filings + KG fact lifecycles, newest first.
+
+    Drawers carry filed_at (fallback authored_at); KG triples carry
+    extracted_at for birth and valid_to for end. Everything is read with
+    read-only opens; the merge cap keeps slow VPS responses small.
+    """
+    import sqlite3
+
+    events: list = []
+    col = open_collection(palace_path)
+    where = {"wing": wing} if wing else None
+    got = 0
+    offset = 0
+    step = 5000
+    while got < limit:
+        res = col.get(where=where, limit=min(step, limit - got), offset=offset, include=["metadatas", "documents"])
+        metas = res.get("metadatas") or []
+        docs = res.get("documents") or []
+        if not metas:
+            break
+        for m, d in zip(metas, docs):
+            t = m.get("filed_at") or m.get("authored_at")
+            if not t:
+                continue
+            room = m.get("room") or "?"
+            events.append(
+                {
+                    "t": t,
+                    "kind": "diary" if room == "diary" else "drawer",
+                    "wing": m.get("wing") or "?",
+                    "room": room,
+                    "text": (d or "")[:220],
+                    "source": (m.get("source_file") or "").split("/")[-1] or None,
+                }
+            )
+            got += 1
+        offset += len(metas)
+        if len(metas) < step:
+            break
+    try:
+        db = sqlite3.connect(f"file:{kg_path(palace_path)}?mode=ro", uri=True, timeout=5)
+        try:
+            rows = db.execute(
+                "SELECT subject,predicate,object,valid_from,valid_to,extracted_at FROM triples LIMIT 5000"
+            ).fetchall()
+        finally:
+            db.close()
+        for s, p, o, vf, vt, ex in rows:
+            if ex:
+                events.append(
+                    {"t": ex, "kind": "fact", "wing": None, "room": None,
+                     "text": f"{s} → {p} → {o}", "source": None}
+                )
+            if vt:
+                events.append(
+                    {"t": vt, "kind": "fact-ended", "wing": None, "room": None,
+                     "text": f"{s} → {p} → {o}", "source": None}
+                )
+    except Exception:
+        pass  # KG unreadable: timeline degrades to drawers, never fails
+    events.sort(key=lambda e: e["t"], reverse=True)
+    return {"ok": True, "wing": wing, "count": len(events[:limit]), "events": events[:limit]}
 
 
 def main(argv: list | None = None) -> int:
