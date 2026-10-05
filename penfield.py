@@ -23,7 +23,7 @@ import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
 
-VERSION = "0.1.1"
+VERSION = "0.1.2"
 DEFAULT_PORT = 8766
 
 
@@ -69,24 +69,43 @@ INDEX_HTML = """<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>penfield</title>
 <style>
-body{font-family:system-ui,sans-serif;max-width:720px;margin:2em auto;padding:0 1em;color:#222}
-h1{font-size:1.4em}h2{font-size:1.1em;margin-top:1.6em}
+body{font-family:system-ui,sans-serif;max-width:760px;margin:2em auto;padding:0 1em;color:#222}
+h1{font-size:1.4em}h2{font-size:1.1em;margin-top:1.2em}
+nav{margin:1em 0}nav button{margin-right:.4em;padding:.35em .8em;cursor:pointer}
+nav button.on{font-weight:bold}
+section{display:none}section.on{display:block}
 .wing{margin:.4em 0}.room{color:#666;font-size:.9em}
 .ev{margin:.3em 0;font-size:.92em}.ev i{color:#666}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid #ccc;border-top-color:#06c;border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.bar{fill:#369}.bar.dim{fill:#999}.lbl{font-size:10px;fill:#666}
 a{color:#06c;text-decoration:none}
 </style></head><body>
 <h1>&#x25c8; penfield <small id="v"></small></h1>
 <p>Local-first MemPalace browser. Read-only, always.</p>
+<nav>
+<button data-s="timeline" class="on">Timeline</button><button data-s="graph">Graph</button><button data-s="wings">Wings</button><button data-s="stats">Stats</button>
+</nav>
+<section id="s-timeline" class="on">
+<h2>Timeline</h2>
+<div><label>wing: <select id="wing"><option value="">all</option></select></label></div>
+<div id="tl"><span class="spin"></span> loading&hellip;</div>
+</section>
+<section id="s-graph">
 <h2>Knowledge graph</h2>
 <div><label><input type="checkbox" id="kgcur" checked> only current</label>
 <button id="kgload">load graph</button></div>
 <canvas id="kg" width="680" height="420" style="border:1px solid #ccc;max-width:100%"></canvas>
 <div id="kgfacts" style="font-size:.9em"></div>
-<h2>Timeline</h2>
-<div><label>wing: <select id="wing"><option value="">all</option></select></label></div>
-<div id="tl">loading&hellip;</div>
+</section>
+<section id="s-wings">
 <h2>Wings</h2>
-<div id="wings">loading&hellip;</div>
+<div id="wings"><span class="spin"></span> loading&hellip;</div>
+</section>
+<section id="s-stats">
+<h2>Stats</h2>
+<div id="charts"><span class="spin"></span> loading&hellip;</div>
+</section>
 <script>
 const kindIcon = {drawer:"&#x25a3;", diary:"&#x270e;", fact:"&#x21d2;", "fact-ended":"&#x21d0;"};
 // --- force-directed KG on canvas: fixed iterations, no dependencies ------
@@ -165,6 +184,20 @@ document.getElementById("kgload").onclick = () => {
       g.missing ? "no knowledge graph here." : `${edges.length} facts, click a node.`;
   }).catch(e => { document.getElementById("kgfacts").textContent = "error: " + e; });
 };
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.remove("on"));
+  document.querySelectorAll("section").forEach(x => x.classList.remove("on"));
+  b.classList.add("on");
+  document.getElementById("s-" + b.dataset.s).classList.add("on");
+  loadSection(b.dataset.s);
+});
+const loadedSecs = {};
+function loadSection(sec) {
+  if (loadedSecs[sec]) return;
+  loadedSecs[sec] = true;
+  if (sec === "timeline" || sec === "wings") loadTaxonomy();
+  if (sec === "stats") loadStats();
+}
 const kindIcon = {drawer:"&#x25a3;", diary:"&#x270e;", fact:"&#x21d2;", "fact-ended":"&#x21d0;"};
 function loadTimeline(wing) {
   fetch("api/timeline?limit=60" + (wing ? "&wing=" + encodeURIComponent(wing) : "")).then(r=>r.json()).then(t=>{
@@ -177,18 +210,55 @@ function loadTimeline(wing) {
       `${(e.text||"").slice(0,140)}</div>`).join("");
   }).catch(e => { document.getElementById("tl").textContent = "error: " + e; });
 }
-fetch("api/taxonomy").then(r=>r.json()).then(t=>{
-  document.getElementById("v").textContent = "v" + t.version;
-  const sel = document.getElementById("wing");
-  t.wings.forEach(w => { const o = document.createElement("option"); o.value = o.textContent = w.name; sel.appendChild(o); });
-  sel.onchange = () => loadTimeline(sel.value);
+let taxCache = null;
+function loadTaxonomy() {
+  const done = t => {
+    taxCache = t;
+    document.getElementById("v").textContent = "v" + t.version;
+    const sel = document.getElementById("wing");
+    if (sel.options.length <= 1) t.wings.forEach(w => { const o = document.createElement("option"); o.value = o.textContent = w.name; sel.appendChild(o); });
+    sel.onchange = () => { document.getElementById("tl").innerHTML = '<span class="spin"></span> loading&hellip;'; loadTimeline(sel.value); };
   const el = document.getElementById("wings");
   el.innerHTML = t.wings.map(w =>
     `<div class="wing"><b>${w.name}</b> — ${w.drawers} drawers` +
     w.rooms.map(r => `<div class="room">&nbsp;&nbsp;${r.name}: ${r.drawers}</div>`).join("") +
     `</div>`).join("");
-  loadTimeline("");
-}).catch(e => { document.getElementById("wings").textContent = "error: " + e; });
+  if (!document.getElementById("tl").dataset.done) { loadTimeline(""); document.getElementById("tl").dataset.done = "1"; }
+  };
+  fetch("api/taxonomy").then(r=>r.json()).then(done).catch(e => {
+    document.getElementById("wings").textContent = "error: " + e;
+    document.getElementById("tl").textContent = "error: " + e;
+  });
+}
+function svgBars(rows, val, maxv, w, h, bh) {
+  const bw = Math.max(2, Math.floor(w / Math.max(1, rows.length)) - 2);
+  let s = `<svg width="${w}" height="${h}" role="img">`;
+  rows.forEach((r, i) => {
+    const bhgt = maxv ? Math.round((r[val] / maxv) * bh) : 0;
+    const x = i * (bw + 2), y = h - 20 - bhgt;
+    s += `<rect class="bar" x="${x}" y="${y}" width="${bw}" height="${bhgt}"><title>${r.day}: ${r[val]}</title></rect>`;
+    if (i % Math.ceil(rows.length / 8) === 0) s += `<text class="lbl" x="${x}" y="${h - 6}">${(r.day || "").slice(5)}</text>`;
+  });
+  return s + "</svg>";
+}
+function loadStats() {
+  fetch("api/stats?days=30").then(r=>r.json()).then(st=>{
+    const days = st.by_day || [];
+    const maxv = Math.max(1, ...days.map(d => d.drawers));
+    const maxf = Math.max(1, ...days.map(d => d.facts));
+    const wings = (taxCache ? taxCache.wings : []).slice().sort((a, b) => b.drawers - a.drawers).slice(0, 12);
+    const maxw = Math.max(1, ...wings.map(w => w.drawers));
+    let h = "<h3>Filings per day (30d)</h3>" + svgBars(days, "drawers", maxv, 680, 150, 120);
+    h += "<h3>KG facts per day</h3>" + svgBars(days, "facts", maxf, 680, 120, 90);
+    h += "<h3>Drawers per wing</h3>";
+    wings.forEach(w => {
+      const pct = Math.round((w.drawers / maxw) * 100);
+      h += `<div style="font-size:.9em">${w.name} <span style="display:inline-block;background:#369;height:10px;width:${Math.max(1, pct * 3)}px"></span> ${w.drawers}</div>`;
+    });
+    document.getElementById("charts").innerHTML = h;
+  }).catch(e => { document.getElementById("charts").textContent = "error: " + e; });
+}
+loadSection("timeline");
 </script></body></html>
 """
 
@@ -246,11 +316,25 @@ class Handler(BaseHTTPRequestHandler):
                 )
             except Exception as exc:  # noqa: BLE001
                 self._json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, 500)
+        elif parsed.path == "/api/stats":
+            try:
+                qs = parse_qs(parsed.query or "")
+                self._json(
+                    activity(
+                        self.server.palace_path,  # type: ignore[attr-defined]
+                        days=min(int((qs.get("days") or [30])[0]), 365),
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, 500)
         else:
             self._json({"ok": False, "error": "not found"}, 404)
 
-    def log_message(self, *args: object) -> None:
-        pass  # quiet: stdout stays clean for supervisors
+    def log_message(self, fmt: str, *args: object) -> None:
+        import datetime
+
+        ts = datetime.datetime.now().strftime("%H:%M:%S")
+        sys.stderr.write(f"{ts} {self.address_string()} {fmt % args}\n")
 
 
 def open_collection(palace_path: str):
@@ -325,6 +409,54 @@ def kg_graph(palace_path: str, limit: int = 500) -> dict:
             n["current"] = n["current"] or current
         edges.append({"s": s, "p": p, "o": o, "from": vf, "to": vt, "current": current})
     return {"ok": True, "nodes": sorted(nodes.values(), key=lambda n: -n["count"]), "edges": edges}
+
+
+def activity(palace_path: str, days: int = 30) -> dict:
+    """Filings per day: drawers (+diary split) from metadata filed_at, KG
+    facts from extracted_at. One metadata scan + one small KG query; the
+    spinner covers the seconds on big palaces."""
+    import datetime
+    import sqlite3
+    from collections import Counter
+
+    today = datetime.date.today()
+    start = (today - datetime.timedelta(days=days - 1)).isoformat()
+    drawers: Counter = Counter()
+    diary: Counter = Counter()
+    col = open_collection(palace_path)
+    offset = 0
+    step = 20000
+    while True:
+        res = col.get(limit=step, offset=offset, include=["metadatas"])
+        metas = res.get("metadatas") or []
+        if not metas:
+            break
+        for m in metas:
+            day = (m.get("filed_at") or "")[:10]
+            if day and day >= start:
+                drawers[day] += 1
+                if (m.get("room") or "") == "diary":
+                    diary[day] += 1
+        offset += len(metas)
+        if len(metas) < step:
+            break
+    facts: Counter = Counter()
+    try:
+        db = sqlite3.connect(f"file:{kg_path(palace_path)}?mode=ro", uri=True, timeout=5)
+        try:
+            for (ex,) in db.execute("SELECT extracted_at FROM triples LIMIT 20000"):
+                if ex and ex[:10] >= start:
+                    facts[ex[:10]] += 1
+        finally:
+            db.close()
+    except Exception:
+        pass
+    by_day = []
+    for i in range(days):
+        day = (today - datetime.timedelta(days=days - 1 - i)).isoformat()
+        by_day.append({"day": day, "drawers": drawers.get(day, 0),
+                       "diary": diary.get(day, 0), "facts": facts.get(day, 0)})
+    return {"ok": True, "days": days, "by_day": by_day}
 
 
 def resolve_palace(explicit: str | None) -> str:
@@ -423,7 +555,10 @@ def main(argv: list | None = None) -> int:
         return 2
     server = HTTPServer((ns.host, ns.port), Handler)
     server.palace_path = palace  # type: ignore[attr-defined]
-    print(f"penfield v{VERSION} on http://{ns.host}:{ns.port} (read-only, palace {palace})")
+    # flush=True: stdout to a file is block-buffered, and a boot line you
+    # only see after killing the server is no boot line at all.
+    print(f"penfield v{VERSION} on http://{ns.host}:{ns.port} (read-only, palace {palace})", flush=True)
+    print("endpoints: /api/health /api/taxonomy /api/timeline /api/kg /api/stats", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
