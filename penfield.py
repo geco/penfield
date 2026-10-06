@@ -23,7 +23,7 @@ import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
 
-VERSION = "0.1.8"
+VERSION = "0.1.9"
 DEFAULT_PORT = 8766
 
 
@@ -305,6 +305,16 @@ function inspectDrawer(id) {
       (d.entities ? `<tr><td>entities</td><td>${d.entities}</td></tr>` : "") +
       `</table><pre class="full"></pre>`;
     box.querySelector("pre").textContent = d.text || "(empty)";
+    const th = document.createElement("div");
+    th.innerHTML = "<h3>Thread</h3><div>loading…</div>";
+    box.appendChild(th);
+    fetch("api/thread?id=" + encodeURIComponent(id) + "&window=3").then(r=>r.json()).then(t=>{
+      if (!t.ok || !t.chunks.length) { th.lastElementChild.textContent = "no thread (single-chunk source)."; return; }
+      th.lastElementChild.innerHTML = `<p class="meta">chunk ${t.pos + 1} of ${t.total} in ${t.source}</p>` + t.chunks.map(c =>
+        `<article class="ev"${c.current ? ' style="border-color:var(--acc)"' : ""}>` +
+        `<span class="meta">#${c.n} · ${c.room||""} · ${(c.t||"").slice(0,16).replace("T"," ")}</span><br>` +
+        `${(c.text||"").slice(0,600)}</article>`).join("");
+    }).catch(e => { th.lastElementChild.textContent = "error: " + e; });
     fetch("api/similar?id=" + encodeURIComponent(id) + "&n=5").then(r=>r.json()).then(s=>{
       if (!s.ok || !s.similar.length) { sim.textContent = "no similar drawers found."; return; }
       sim.innerHTML = s.similar.map(x =>
@@ -632,6 +642,17 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(similar_to(self.server.palace_path, did, n))  # type: ignore[attr-defined]
             except Exception as exc:  # noqa: BLE001
                 self._json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, 500)
+        elif parsed.path == "/api/thread":
+            try:
+                qs = parse_qs(parsed.query or "")
+                did = (qs.get("id") or [""])[0]
+                w = min(int((qs.get("window") or [3])[0]), 20)
+                if not did:
+                    self._json({"ok": False, "error": "usage: /api/thread?id=DRAWER_ID&window=3"}, 400)
+                else:
+                    self._json(thread_around(self.server.palace_path, did, w))  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001
+                self._json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, 500)
         elif parsed.path == "/api/diary":
             try:
                 qs = parse_qs(parsed.query or "")
@@ -830,6 +851,39 @@ def similar_to(palace_path: str, drawer_id: str, n: int = 5) -> dict:
         if len(out) >= n:
             break
     return {"ok": True, "id": drawer_id, "similar": out}
+
+
+
+def thread_around(palace_path: str, drawer_id: str, window: int = 3) -> dict:
+    """The conversation around a drawer: same source_file ordered by
+    chunk_index (one export window = consecutive exchanges), window chunks
+    each side, current highlighted. Full texts — a window is small."""
+    col = open_collection(palace_path)
+    ids, metas, docs, _, _ = _unwrap(col.get(ids=[drawer_id], include=["metadatas"]))
+    if not ids:
+        return {"ok": False, "error": "drawer not found"}
+    meta = metas[0] or {}
+    src = meta.get("source_file") or ""
+    idx = meta.get("chunk_index", 0)
+    if not src:
+        return {"ok": False, "error": "drawer has no source file"}
+    ids2, metas2, docs2, _, _ = _unwrap(col.get(
+        where={"source_file": src}, limit=5000, offset=0,
+        include=["metadatas", "documents"]))
+    rows = sorted(
+        ((m.get("chunk_index", 0), i, m, d)
+         for i, m, d in zip(ids2 or [], metas2 or [], docs2 or [])),
+        key=lambda t: t[0] if isinstance(t[0], int) else 0)
+    pos = next((k for k, (_, i, _, _) in enumerate(rows) if i == drawer_id), None)
+    if pos is None:
+        return {"ok": False, "error": "drawer not in its own source listing"}
+    lo, hi = max(0, pos - window), pos + window + 1
+    return {"ok": True, "id": drawer_id, "source": src.split("/")[-1],
+            "total": len(rows), "pos": pos,
+            "chunks": [{"id": i, "n": n, "room": (m or {}).get("room"),
+                        "t": (m or {}).get("authored_at"),
+                        "current": i == drawer_id, "text": d or ""}
+                       for n, i, m, d in rows[lo:hi]]}
 
 
 def recent_diary(palace_path: str, n: int = 5) -> dict:
