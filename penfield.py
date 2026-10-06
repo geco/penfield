@@ -23,7 +23,7 @@ import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer as HTTPServer
 from urllib.parse import urlparse, parse_qs
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 DEFAULT_PORT = 8766
 
 
@@ -67,108 +67,131 @@ def ensure_mempalace() -> None:
 INDEX_HTML = r"""<!doctype html>
 <html lang="en" data-theme="dark"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>penfield</title>
+<title>penfield — MemPalace regulator</title>
 <style>
-:root{--bg:#0d1117;--panel:#161b22;--line:#30363d;--txt:#e6edf3;--mut:#8b949e;--acc:#58a6ff;--grn:#3fb950;--gry:#6e7681;--amb:#d29922}
+:root{--bg:#0b0e14;--bg2:#11161f;--panel:#151b26;--line:#232c3d;--txt:#e8eef6;--mut:#8d99ae;--acc:#5aa9ff;--acc2:#7cc4ff;--grn:#3fb950;--gry:#5b6572;--amb:#d29922;--red:#f47067;--grad:linear-gradient(135deg,#5aa9ff,#b388ff)}
 *{box-sizing:border-box}
-body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--txt);max-width:900px;margin:0 auto;padding:1.2em 1em 3em}
-header h1{font-size:1.5em;margin:.2em 0}header h1 small{color:var(--mut);font-weight:normal}
-header p{color:var(--mut);margin:.2em 0 1em}
-nav{display:flex;gap:.4em;flex-wrap:wrap;margin-bottom:1em}
-nav button{background:var(--panel);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:.45em 1em;cursor:pointer;font-size:.95em}
-nav button.on{background:var(--acc);border-color:var(--acc);color:#04121f;font-weight:bold}
+body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--txt);margin:0;padding:0}
+.layout{display:flex;min-height:100vh}
+aside{background:var(--bg2);border-right:1px solid var(--line);width:230px;padding:1.2em .9em;position:sticky;top:0;height:100vh;flex-shrink:0}
+aside h1{font-size:1.25em;margin:.1em 0 .1em;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+aside .sub{color:var(--mut);font-size:.8em;margin-bottom:1.2em}
+aside nav{display:flex;flex-direction:column;gap:.3em}
+aside nav button{background:transparent;color:var(--txt);border:1px solid transparent;border-radius:8px;padding:.55em .8em;cursor:pointer;font-size:.95em;text-align:left;transition:all .15s}
+aside nav button:hover{background:var(--panel)}
+aside nav button.on{background:var(--panel);border-color:var(--acc);font-weight:bold}
+main{flex:1;padding:1.4em 1.6em;max-width:1100px;min-width:0}
 section{display:none;animation:fade .25s ease-out}
 section.on{display:block}
 @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-h2{font-size:1.15em;margin:1em 0 .5em}h3{font-size:1em;color:var(--mut);margin:1.2em 0 .4em}
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:.7em}
-.cards article{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:.9em}
-.cards h3{margin:.1em 0 .3em;color:var(--txt)}.cards p{color:var(--mut);font-size:.9em;margin:.2em 0 .7em}
-button,.btn{background:var(--acc);border:none;border-radius:6px;color:#04121f;padding:.4em .9em;cursor:pointer;font-size:.9em}
-button.ghost{background:transparent;border:1px solid var(--line);color:var(--txt)}
-select,input{background:var(--panel);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:.35em .6em}
-.ev{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:.55em .8em;margin:.45em 0;font-size:.92em;cursor:pointer}
+h2{font-size:1.2em;margin:.2em 0 .6em}h3{font-size:1em;color:var(--mut);margin:1.3em 0 .4em}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:.7em}
+.cards article{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:1em;transition:transform .15s,border-color .15s}
+.cards article:hover{transform:translateY(-2px);border-color:var(--acc)}
+.cards h3{margin:.1em 0 .3em;color:var(--txt)}.cards p{color:var(--mut);font-size:.9em;margin:.2em 0 .8em}
+button,.btn{background:var(--acc);border:none;border-radius:7px;color:#06121f;padding:.45em 1em;cursor:pointer;font-size:.9em;font-weight:600;transition:filter .15s}
+button:hover{filter:brightness(1.12)}
+button.ghost{background:transparent;border:1px solid var(--line);color:var(--txt);font-weight:normal}
+button.danger{border-color:var(--red);color:var(--red)}
+button:disabled{opacity:.5;cursor:default}
+select,input,textarea{background:var(--panel);color:var(--txt);border:1px solid var(--line);border-radius:7px;padding:.4em .65em;font-size:.92em}
+.ev{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:.6em .85em;margin:.45em 0;font-size:.92em;cursor:pointer;transition:border-color .15s}
 .ev:hover{border-color:var(--acc)}
 .ev .meta{color:var(--mut);font-size:.85em}
 .ev time{color:var(--mut)}
-.tag{display:inline-block;font-size:.75em;border:1px solid var(--line);border-radius:4px;padding:0 .4em;margin-right:.3em;color:var(--mut)}
+.tag{display:inline-block;font-size:.75em;border:1px solid var(--line);border-radius:5px;padding:.05em .45em;margin:.1em .25em .1em 0;color:var(--mut)}
 .tag.cur{color:var(--grn);border-color:var(--grn)}.tag.old{color:var(--gry)}
 progress{width:100%;height:8px;margin:.4em 0;accent-color:var(--acc)}
 .statusline{color:var(--mut);font-size:.88em;min-height:1.4em}
-canvas#kg{width:100%;background:var(--panel);border:1px solid var(--line);border-radius:10px;cursor:grab}
+canvas#kg{width:100%;background:radial-gradient(ellipse at 50% 40%,#131a28,#0b0e14);border:1px solid var(--line);border-radius:12px;cursor:grab}
 table.meta{border-collapse:collapse;font-size:.88em;width:100%}
-table.meta td{border-bottom:1px solid var(--line);padding:.3em .5em;vertical-align:top}
+table.meta td{border-bottom:1px solid var(--line);padding:.35em .5em;vertical-align:top}
 table.meta td:first-child{color:var(--mut);white-space:nowrap;width:110px}
-pre.full{white-space:pre-wrap;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:.9em;font-size:.9em;line-height:1.5}
-.bar{fill:var(--acc)}.lbl{font-size:10px;fill:var(--mut)}
-footer{margin-top:2.5em;color:var(--mut);font-size:.82em;border-top:1px solid var(--line);padding-top:1em}
+pre.full{white-space:pre-wrap;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:.9em;font-size:.9em;line-height:1.55}
+.bar{fill:var(--acc);transition:height .5s ease-out}.lbl{font-size:10px;fill:var(--mut)}
+footer.site{margin-top:2.5em;color:var(--mut);font-size:.82em;border-top:1px solid var(--line);padding-top:1em}
 .count{display:inline-block;min-width:3ch}
-@media (max-width:600px){body{padding:.8em}.cards{grid-template-columns:1fr}}
+.pager{display:flex;gap:.5em;align-items:center;margin:.6em 0}
+.searchrow{display:flex;gap:.5em;margin:.6em 0}
+.searchrow input{flex:1}
+.dup{border-left:3px solid var(--amb)}
+details{margin:.5em 0}summary{cursor:pointer}
+@media (max-width:720px){
+  .layout{flex-direction:column}
+  aside{width:100%;height:auto;position:static;border-right:none;border-bottom:1px solid var(--line);padding:.7em}
+  aside nav{flex-direction:row;overflow-x:auto}
+  aside nav button{white-space:nowrap}
+  aside .sub{display:none}
+  main{padding:1em}
+}
 </style></head><body>
-<header>
-<h1>&#x25c8; penfield <small id="v"></small></h1>
-<p>Local-first MemPalace browser. Read-only, always. <span id="health"></span></p>
-</header>
+<div class="layout">
+<aside>
+<h1>&#x25c8; penfield</h1>
+<div class="sub"><span id="v"></span> · <span id="health">…</span></div>
 <nav aria-label="Views">
-<button data-s="welcome" class="on">Welcome</button><button data-s="timeline">Timeline</button><button data-s="graph">Graph</button><button data-s="wings">Wings</button><button data-s="stats">Stats</button><button data-s="inspector" id="nav-inspector" style="display:none">Inspector</button>
+<button data-s="welcome" class="on">Welcome</button><button data-s="timeline">Timeline</button><button data-s="graph">Graph</button><button data-s="stats">Stats</button><button data-s="inspector" id="nav-inspector" style="display:none">Inspector</button>
 </nav>
+</aside>
 <main>
 <section id="s-welcome" class="on" aria-labelledby="h-welcome">
-<h2 id="h-welcome">Welcome</h2>
+<h2 id="h-welcome">Your memory, under control</h2>
 <div class="cards">
-<article><h3>&#x25a3; Timeline</h3><p>Drawer filings, diary entries and KG fact lifecycles, newest first. Click anything to inspect it.</p><button data-go="timeline">Open</button></article>
-<article><h3>&#x21d2; Graph</h3><p>Knowledge-graph nodes and edges: current vs expired, live layout, click a node for its facts.</p><button data-go="graph">Open</button></article>
-<article><h3>&#x25c8; Wings</h3><p>Palace taxonomy: wings, rooms, drawer counts.</p><button data-go="wings">Open</button></article>
-<article><h3>&#x25a4; Stats</h3><p>Filings per day, top entities, biggest rooms, latest diary.</p><button data-go="stats">Open</button></article>
+<article><h3>&#x25a3; Timeline</h3><p>Filings, diary and facts over time. Click anything to inspect it, page through everything.</p><button data-go="timeline">Open</button></article>
+<article><h3>&#x21d2; Graph</h3><p>Knowledge graph: live layout, zoom, drag, click a node for its facts and linked memories.</p><button data-go="graph">Open</button></article>
+<article><h3>&#x25a4; Stats &amp; heal</h3><p>Activity charts, top entities, duplicates found and removed.</p><button data-go="stats">Open</button></article>
+<article><h3>&#x2726; New memory</h3><p>Invent a memory on purpose: wing, room, text. Filed like any other.</p><button data-go="inspector" data-newmem="1">Create</button></article>
 </div>
 <p class="statusline">Nothing loads until you open a view — this page starts empty on purpose.</p>
 </section>
 <section id="s-timeline" aria-labelledby="h-timeline">
 <h2 id="h-timeline">Timeline</h2>
+<div class="searchrow"><input id="q" type="search" placeholder="Filter loaded memories… (searches what you already fetched, no server round-trip)"><button class="ghost" id="q-clear">Clear</button></div>
 <div><label>wing: <select id="wing"><option value="">all</option></select></label></div>
 <progress id="pg-tl" max="100" value="0" hidden></progress>
 <div id="st-tl" class="statusline" role="status"></div>
 <div id="tl"></div>
+<div class="pager"><button class="ghost" id="pg-prev">← Newer</button><span id="pg-info" class="statusline"></span><button class="ghost" id="pg-next">Older →</button></div>
 </section>
 <section id="s-graph" aria-labelledby="h-graph">
 <h2 id="h-graph">Knowledge graph</h2>
-<div><label><input type="checkbox" id="kgcur" checked> only current</label>
-<button id="kgload">load graph</button></div>
+<div><label title="Expired facts have an end date (valid_to). Uncheck to include them."><input type="checkbox" id="kgcur" checked> current only</label>
+<button id="kgload">load graph</button> <span class="statusline">scroll to zoom, drag background to pan, drag nodes to move, click a node</span></div>
 <figure style="margin:.6em 0">
 <canvas id="kg" width="680" height="420"></canvas>
-<figcaption style="color:var(--mut);font-size:.85em">Live force layout, drag nodes. Blue: current facts, grey: expired.</figcaption>
+<figcaption style="color:var(--mut);font-size:.85em">Live force layout, computed locally. Blue-green: current facts, grey: expired.</figcaption>
 </figure>
 <div id="kgfacts" style="font-size:.9em"></div>
 </section>
-<section id="s-wings" aria-labelledby="h-wings">
-<h2 id="h-wings">Wings</h2>
-<progress id="pg-wings" max="100" value="0" hidden></progress>
-<div id="st-wings" class="statusline" role="status"></div>
-<div id="wings"></div>
-</section>
 <section id="s-stats" aria-labelledby="h-stats">
-<h2 id="h-stats">Stats</h2>
+<h2 id="h-stats">Stats &amp; heal</h2>
 <progress id="pg-stats" max="100" value="0" hidden></progress>
 <div id="st-stats" class="statusline" role="status"></div>
 <div id="charts"></div>
 <h3>Top entities</h3><div id="entities"></div>
 <h3>Latest diary</h3><div id="diary"></div>
+<h3>Duplicates <span class="statusline">same text filed 2+ times — keep newest, drop the rest</span></h3>
+<div><button id="dup-scan">Scan for duplicates</button> <button id="dup-heal" class="danger" disabled>Heal all</button></div>
+<progress id="pg-dup" max="100" value="0" hidden></progress>
+<div id="st-dup" class="statusline" role="status"></div>
+<div id="dups"></div>
 </section>
 <section id="s-inspector" aria-labelledby="h-inspector">
 <h2 id="h-inspector">Inspector</h2>
-<details id="newmem"><summary style="cursor:pointer"><b>+ Nuovo ricordo</b> (inventalo: wing, stanza, testo)</summary>
+<details id="newmem"><summary style="cursor:pointer"><b>+ New memory</b> (invent it: wing, room, text)</summary>
 <div style="margin:.5em 0">
 <label>wing <input id="nm-wing" size="12" value="test"></label>
 <label>room <input id="nm-room" size="12" value="general"></label><br>
-<textarea id="nm-text" rows="3" style="width:100%" placeholder="Il ricordo, con parole tue…"></textarea><br>
-<button id="nm-save">Archivia ricordo</button> <span id="nm-msg" class="statusline"></span>
+<textarea id="nm-text" rows="3" style="width:100%" placeholder="The memory, in your own words…"></textarea><br>
+<button id="nm-save">File memory</button> <span id="nm-msg" class="statusline"></span>
 </div></details>
 <div id="insp"></div>
-<h3>Similar drawers</h3>
+<h3>Similar memories</h3>
 <div id="sim"></div>
 </section>
 </main>
-<footer><small>penfield is read-only: it never writes to your palace. Served from localhost.</small></footer>
+</div>
+<footer class="site"><small>penfield regulates memory: views read, curation writes in seconds-long operations. Served from localhost.</small></footer>
 <script>
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const kindIcon = {drawer:"&#x25a3;", diary:"&#x270e;", fact:"&#x21d2;", "fact-ended":"&#x21d0;"};
@@ -188,8 +211,7 @@ const loadedSecs = {};
 function loadSection(sec) {
   if (sec === "inspector" || loadedSecs[sec]) return;
   loadedSecs[sec] = true;
-  if (sec === "timeline") loadTaxonomy("pg-tl", "st-tl", true);
-  if (sec === "wings") loadTaxonomy("pg-wings", "st-wings", false);
+  if (sec === "timeline") loadTimelinePage();
   if (sec === "stats") loadStats();
 }
 function animateCount(el, to) {
@@ -233,26 +255,48 @@ async function fetchStream(url, pg, st, label) {
   if (st) st.textContent = "";
   return result;
 }
+// --- timeline: paged server fetch + local cache + local filter -----------
+let tlCache = [], tlTotal = 0, tlOffset = 0, tlWing = "";
+const TL_PAGE = 60;
 function evHtml(e) {
   const extra = e.kind === "fact" || e.kind === "fact-ended"
     ? ` data-s="${(e.s||"").replace(/"/g, "")}" data-o="${(e.o||"").replace(/"/g, "")}"` : "";
   return `<article class="ev" data-id="${e.id || ""}" data-kind="${e.kind}"${extra}><span title="${e.kind}">${kindIcon[e.kind]||"&#x25a3;"}</span> ` +
-    `<time datetime="${e.t||""}">${(e.t||"").slice(0,16).replace("T"," ")}</time> ` +
+    `<time datetime="${e.t||""}">${esc((e.t||"").slice(0,16).replace("T"," "))}</time> ` +
     (e.wing ? `<span class="meta">${esc(e.wing)}${e.room ? "/" + esc(e.room) : ""}</span> ` : "") +
     `${esc((e.text||"").slice(0,140))}</article>`;
 }
-function factSearch(box, s, o) {
-  box.innerHTML += `<div class="statusline">searching drawers about “${esc(s)}”…</div>`;
-  fetch("api/search?q=" + encodeURIComponent(s + " " + o) + "&n=5").then(r=>r.json()).then(sr=>{
-    if (!sr.ok || !sr.hits.length) { box.querySelector(".statusline").textContent = "no drawers mention it."; return; }
-    const div = document.createElement("div");
-    div.innerHTML = sr.hits.map(h =>
-      `<article class="ev" data-id="${h.id}"><span class="meta">${esc(h.wing||"")}/${esc(h.room||"")}` +
-      (h.distance != null ? ` · d=${h.distance}` : "") + `</span> ${esc((h.text||"").slice(0,140))}</article>`).join("");
-    box.querySelector(".statusline").replaceWith(div);
-    wireInspector(box);
-  }).catch(err => { box.querySelector(".statusline").textContent = "error: " + err; });
+function renderTimeline() {
+  const q = (document.getElementById("q").value || "").toLowerCase().trim();
+  const rows = q ? tlCache.filter(e =>
+    ((e.text||"") + " " + (e.wing||"") + " " + (e.room||"")).toLowerCase().includes(q)) : tlCache;
+  const el = document.getElementById("tl");
+  document.getElementById("st-tl").textContent =
+    `${rows.length} shown${q ? " (filtered)" : ""} · ${tlTotal.toLocaleString()} total in scope`;
+  el.innerHTML = rows.length ? rows.map(evHtml).join("") : "nothing here yet.";
+  wireInspector(el);
+  document.getElementById("pg-info").textContent = `page offset ${tlOffset}`;
+  document.getElementById("pg-prev").disabled = tlOffset <= 0;
+  document.getElementById("pg-next").disabled = tlOffset + TL_PAGE >= tlTotal;
 }
+function loadTimelinePage() {
+  const st = document.getElementById("st-tl"), pg = document.getElementById("pg-tl");
+  const wing = document.getElementById("wing").value || "";
+  if (wing !== tlWing) { tlCache = []; tlOffset = 0; tlWing = wing; }
+  const url = `api/timeline?limit=${TL_PAGE}&offset=${tlOffset}&stream=1` + (wing ? "&wing=" + encodeURIComponent(wing) : "");
+  fetchStream(url, pg, st, "timeline").then(t=>{
+    tlTotal = t.count || 0;
+    tlCache = t.events || [];
+    renderTimeline();
+  }).catch(e => {
+    if (String(e).includes("abort")) return;
+    st.textContent = "error: " + e;
+  });
+}
+document.getElementById("pg-next").onclick = () => { tlOffset += TL_PAGE; loadTimelinePage(); };
+document.getElementById("pg-prev").onclick = () => { tlOffset = Math.max(0, tlOffset - TL_PAGE); loadTimelinePage(); };
+document.getElementById("q").oninput = () => renderTimeline();
+document.getElementById("q-clear").onclick = () => { document.getElementById("q").value = ""; renderTimeline(); };
 function wireInspector(root) {
   root.querySelectorAll(".ev[data-id]").forEach(el => {
     if (el.dataset.id) el.onclick = () => inspectDrawer(el.dataset.id);
@@ -262,130 +306,37 @@ function wireInspector(root) {
     if (!el.dataset.id && el.dataset.s) el.onclick = () => factSearch(root, el.dataset.s, el.dataset.o);
   });
 }
-function loadTimeline(wing) {
-  const st = document.getElementById("st-tl"), pg = document.getElementById("pg-tl");
-  fetchStream("api/timeline?limit=60&stream=1" + (wing ? "&wing=" + encodeURIComponent(wing) : ""), pg, st, "timeline").then(t=>{
-    st.textContent = t.events ? t.events.length + " events" : "";
-    const el = document.getElementById("tl");
-    if (!t.events || !t.events.length) { el.textContent = "nothing here yet."; return; }
-    el.innerHTML = t.events.map(evHtml).join("");
-    wireInspector(el);
-  }).catch(e => { st.textContent = "error: " + e; });
+function factSearch(box, s, o) {
+  box.innerHTML += `<div class="statusline">searching drawers about “${esc(s)}”…</div>`;
+  fetch("api/search?q=" + encodeURIComponent(s + " " + o) + "&n=5", {signal: flightCtl.signal}).then(r=>r.json()).then(sr=>{
+    if (!sr.ok || !sr.hits.length) { box.querySelector(".statusline").textContent = "no drawers mention it."; return; }
+    const div = document.createElement("div");
+    div.innerHTML = sr.hits.map(h =>
+      `<article class="ev" data-id="${h.id}"><span class="meta">${esc(h.wing||"")}/${esc(h.room||"")}` +
+      (h.distance != null ? ` · d=${h.distance}` : "") + `</span> ${esc((h.text||"").slice(0,140))}</article>`).join("");
+    box.querySelector(".statusline").replaceWith(div);
+    wireInspector(box);
+  }).catch(err => {
+    if (String(err).includes("abort")) return;
+    box.querySelector(".statusline").textContent = "error: " + err;
+  });
 }
 let taxCache = null;
-function renderTaxonomy(t) {
+function renderTaxonomyMeta(t) {
   taxCache = t;
   document.getElementById("v").textContent = "v" + t.version;
   const sel = document.getElementById("wing");
   if (sel.options.length <= 1) t.wings.forEach(w => { const o = document.createElement("option"); o.value = o.textContent = w.name; sel.appendChild(o); });
-  sel.onchange = () => { loadTimeline(sel.value); };
-  const total = t.drawers;
-  document.getElementById("wings").innerHTML =
-    `<p><span class="count" id="wtotal">0</span> drawers across ${t.wings.length} wings</p>` +
-    t.wings.map(w =>
-    `<article class="wing"><b>${esc(w.name)}</b> — ${w.drawers.toLocaleString()} drawers` +
-    w.rooms.map(r => `<div class="room">&nbsp;&nbsp;${esc(r.name)}: ${r.drawers.toLocaleString()}</div>`).join("") +
-    `</article>`).join("");
-  animateCount(document.getElementById("wtotal"), total);
+  sel.onchange = () => { tlCache = []; tlOffset = 0; tlWing = sel.value; loadTimelinePage(); };
 }
-function loadTaxonomy(pgId, stId, thenTimeline) {
-  const pg = document.getElementById(pgId), st = document.getElementById(stId);
-  fetchStream("api/taxonomy?stream=1", pg, st, "scanning").then(t => {
-    renderTaxonomy(t);
-    if (thenTimeline) loadTimeline(document.getElementById("wing").value || "");
-  }).catch(e => {
-    document.getElementById("wings").textContent = "error: " + e;
-    document.getElementById("tl").textContent = "error: " + e;
+function loadTaxonomyMeta() {
+  return fetch("api/taxonomy", {signal: flightCtl.signal}).then(r=>r.json()).then(t=>{
+    renderTaxonomyMeta(t);
+    return t;
   });
 }
-function inspectDrawer(id) {
-  if (!id) return;
-  show("inspector");
-  const box = document.getElementById("insp"), sim = document.getElementById("sim");
-  box.innerHTML = "loading…"; sim.innerHTML = "";
-  fetch("api/drawer?id=" + encodeURIComponent(id)).then(r=>r.json()).then(d=>{
-    if (!d.ok) { box.textContent = d.error || "not found"; return; }
-    box.innerHTML =
-      `<table class="meta">` +
-      `<tr><td>wing / room</td><td>${esc(d.wing||"?")} / ${esc(d.room||"?")}</td></tr>` +
-      `<tr><td>filed</td><td><time datetime="${d.filed_at||""}">${(d.filed_at||"").slice(0,16).replace("T"," ")}</time></td></tr>` +
-      (d.source_file ? `<tr><td>source</td><td>${esc(d.source_file.split("/").pop())}</td></tr>` : "") +
-      (d.entities ? `<tr><td>entities</td><td>${esc(d.entities)}</td></tr>` : "") +
-      `</table><pre class="full"></pre>`;
-    box.querySelector("pre").textContent = d.text || "(empty)";
-    const cure = document.createElement("div");
-    cure.innerHTML =
-      `<div style="margin:.6em 0">` +
-      `<button class="ghost" id="cu-edit">Correggi testo</button> ` +
-      `<button class="ghost" id="cu-move">Sposta wing/room</button> ` +
-      `<button class="ghost" id="cu-del">Elimina</button> ` +
-      `<span id="cu-msg" class="statusline"></span></div>` +
-      `<div id="cu-form"></div>`;
-    box.appendChild(cure);
-    const msg = (t) => { cure.querySelector("#cu-msg").textContent = t; };
-    const post = (body) => fetch("api/cure", {method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(body), signal: flightCtl.signal}).then(r=>r.json());
-    cure.querySelector("#cu-edit").onclick = () => {
-      cure.querySelector("#cu-form").innerHTML =
-        `<textarea id="cu-text" rows="6" style="width:100%"></textarea><br>` +
-        `<button id="cu-save">Salva correzione</button>`;
-      cure.querySelector("#cu-text").value = d.text || "";
-      cure.querySelector("#cu-save").onclick = () => {
-        msg("saving…");
-        post({action: "update-drawer", id, content: cure.querySelector("#cu-text").value}).then(r=>{
-          msg(r.ok ? "corretto." : "errore: " + (r.error || "?"));
-          if (r.ok) inspectDrawer(id);
-        }).catch(e => msg("error: " + e));
-      };
-    };
-    cure.querySelector("#cu-move").onclick = () => {
-      cure.querySelector("#cu-form").innerHTML =
-        `<label>wing <input id="cu-wing" size="12" value="${d.wing||""}"></label> ` +
-        `<label>room <input id="cu-room" size="12" value="${d.room||""}"></label> ` +
-        `<button id="cu-save">Sposta</button>`;
-      cure.querySelector("#cu-save").onclick = () => {
-        msg("saving…");
-        post({action: "update-drawer", id,
-              wing: cure.querySelector("#cu-wing").value,
-              room: cure.querySelector("#cu-room").value}).then(r=>{
-          msg(r.ok ? "spostato." : "errore: " + (r.error || "?"));
-          if (r.ok) inspectDrawer(id);
-        }).catch(e => msg("error: " + e));
-      };
-    };
-    cure.querySelector("#cu-del").onclick = () => {
-      cure.querySelector("#cu-form").innerHTML =
-        `<b>Eliminare per sempre?</b> <button id="cu-yes">Sì, elimina</button> `;
-      cure.querySelector("#cu-yes").onclick = () => {
-        msg("deleting…");
-        post({action: "delete-drawer", id, confirm: true}).then(r=>{
-          msg(r.ok ? "eliminato." : "errore: " + (r.error || "?"));
-          if (r.ok) { box.innerHTML = "<p>Drawer eliminato.</p>"; loadedSecs.timeline = false; }
-        }).catch(e => msg("error: " + e));
-      };
-    };
-    const th = document.createElement("div");
-    th.innerHTML = "<h3>Thread</h3><div>loading…</div>";
-    box.appendChild(th);
-    fetch("api/thread?id=" + encodeURIComponent(id) + "&window=3").then(r=>r.json()).then(t=>{
-      if (!t.ok || !t.chunks.length) { th.lastElementChild.textContent = "no thread (single-chunk source)."; return; }
-      th.lastElementChild.innerHTML = `<p class="meta">chunk ${t.pos + 1} of ${t.total} in ${t.source}</p>` + t.chunks.map(c =>
-        `<article class="ev"${c.current ? ' style="border-color:var(--acc)"' : ""}>` +
-        `<span class="meta">#${c.n} · ${c.room||""} · ${(c.t||"").slice(0,16).replace("T"," ")}</span><br>` +
-        `${esc((c.text||"").slice(0,600))}</article>`).join("");
-    }).catch(e => { th.lastElementChild.textContent = "error: " + e; });
-    fetch("api/similar?id=" + encodeURIComponent(id) + "&n=5").then(r=>r.json()).then(s=>{
-      if (!s.ok || !s.similar.length) { sim.textContent = "no similar drawers found."; return; }
-      sim.innerHTML = s.similar.map(x =>
-        `<article class="ev" data-id="${x.id}"><span class="meta">${esc(x.wing)}/${esc(x.room)}` +
-        (x.distance != null ? ` · d=${x.distance}` : "") + `</span> ${esc((x.preview||"").slice(0,140))}</article>`).join("");
-      wireInspector(sim);
-    }).catch(e => { sim.textContent = "error: " + e; });
-  }).catch(e => { box.textContent = "error: " + e; });
-}
-// --- live force-directed KG: rAF loop with cooling + drag, no deps ---
-let kgAnim = null;
+// --- live force-directed KG: rAF loop with cooling + drag + zoom ---------
+let kgAnim = null, kgView = {s: 1, x: 0, y: 0};
 function drawKG(nodes, edges) {
   const cv = document.getElementById("kg"), ctx = cv.getContext("2d");
   const W = cv.width, H = cv.height, N = nodes.length;
@@ -395,25 +346,35 @@ function drawKG(nodes, edges) {
     n.vx = 0; n.vy = 0; n.r = 4 + Math.sqrt(n.count) * 2;
   });
   const idx = Object.fromEntries(nodes.map((n, i) => [n.id, i]));
-  let sel = null, drag = null, heat = 1;
+  let sel = null, drag = null, panning = null, heat = 1;
+  const v = kgView;
+  const X = x => x * v.s + v.x, Y = y => y * v.s + v.y;
   function paint() {
     ctx.clearRect(0, 0, W, H);
+    ctx.save();
     edges.forEach(e => {
       const a = nodes[idx[e.s]], b = nodes[idx[e.o]];
       if (!a || !b) return;
       const hot = sel && (e.s === sel || e.o === sel);
-      ctx.strokeStyle = hot ? "#58a6ff" : (e.current ? "#1f6feb" : "#30363d");
+      ctx.strokeStyle = hot ? "#5aa9ff" : (e.current ? "#1f6feb" : "#3a4356");
       ctx.lineWidth = hot ? 2 : 1;
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      ctx.globalAlpha = hot ? 1 : 0.75;
+      ctx.beginPath(); ctx.moveTo(X(a.x), Y(a.y)); ctx.lineTo(X(b.x), Y(b.y)); ctx.stroke();
     });
+    ctx.globalAlpha = 1;
     nodes.forEach(n => {
-      ctx.fillStyle = n.id === sel ? "#58a6ff" : (n.current ? "#3fb950" : "#6e7681");
-      ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, 7); ctx.fill();
+      ctx.save();
+      ctx.shadowColor = n.id === sel ? "#5aa9ff" : "transparent";
+      ctx.shadowBlur = n.id === sel ? 14 : 0;
+      ctx.fillStyle = n.id === sel ? "#5aa9ff" : (n.current ? "#3fb950" : "#5b6572");
+      ctx.beginPath(); ctx.arc(X(n.x), Y(n.y), Math.max(2, n.r * v.s), 0, 7); ctx.fill();
+      ctx.restore();
       if (n.id === sel || n.count >= 3) {
-        ctx.fillStyle = "#e6edf3"; ctx.font = "11px system-ui";
-        ctx.fillText(n.id.slice(0, 24), n.x + n.r + 3, n.y + 4);
+        ctx.fillStyle = "#e8eef6"; ctx.font = "11px system-ui";
+        ctx.fillText(n.id.slice(0, 24), X(n.x) + n.r * v.s + 3, Y(n.y) + 4);
       }
     });
+    ctx.restore();
   }
   function tick() {
     for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) {
@@ -437,25 +398,47 @@ function drawKG(nodes, edges) {
     });
     paint();
     heat *= 0.995;
-    if (heat > 0.02) kgAnim = requestAnimationFrame(tick);
+    if (heat > 0.02 || drag) kgAnim = requestAnimationFrame(tick);
     else kgAnim = null;
   }
   function pos(ev) {
     const r = cv.getBoundingClientRect();
-    return [(ev.clientX - r.left) * (W / r.width), (ev.clientY - r.top) * (H / r.height)];
+    return [((ev.clientX - r.left) * (W / r.width) - v.x) / v.s,
+            ((ev.clientY - r.top) * (H / r.height) - v.y) / v.s];
   }
   function pick(mx, my) {
     let best = null, bd = 1e9;
+    const tol = 900 / (v.s * v.s);
     nodes.forEach(n => { const d = (n.x - mx) ** 2 + (n.y - my) ** 2; if (d < bd) { bd = d; best = n; } });
-    return bd < 900 ? best : null;
+    return bd < tol ? best : null;
   }
-  cv.onmousedown = ev => { const [mx, my] = pos(ev); const n = pick(mx, my); if (n) { drag = n; heat = Math.max(heat, 0.4); } };
-  window.onmouseup = () => { drag = null; };
-  cv.onmousemove = ev => {
-    if (!drag) return;
+  cv.onmousedown = ev => {
     const [mx, my] = pos(ev);
-    drag.x = Math.min(W - 10, Math.max(10, mx)); drag.y = Math.min(H - 10, Math.max(10, my));
-    drag.vx = 0; drag.vy = 0;
+    const n = pick(mx, my);
+    if (n) { drag = n; heat = Math.max(heat, 0.4); }
+    else panning = {x: ev.clientX, y: ev.clientY, ox: v.x, oy: v.y};
+  };
+  window.onmouseup = () => { drag = null; panning = null; };
+  cv.onmousemove = ev => {
+    if (drag) {
+      const [mx, my] = pos(ev);
+      drag.x = Math.min(W - 10, Math.max(10, mx)); drag.y = Math.min(H - 10, Math.max(10, my));
+      drag.vx = 0; drag.vy = 0;
+    } else if (panning) {
+      const r = cv.getBoundingClientRect();
+      v.x = panning.ox + (ev.clientX - panning.x) * (W / r.width);
+      v.y = panning.oy + (ev.clientY - panning.y) * (H / r.height);
+      if (!kgAnim) tick();
+    }
+  };
+  cv.onwheel = ev => {
+    ev.preventDefault();
+    const f = ev.deltaY < 0 ? 1.12 : 0.89;
+    const r = cv.getBoundingClientRect();
+    const mx = (ev.clientX - r.left) * (W / r.width), my = (ev.clientY - r.top) * (H / r.height);
+    v.x = mx - (mx - v.x) * f; v.y = my - (my - v.y) * f;
+    v.s = Math.min(4, Math.max(0.3, v.s * f));
+    paint();
   };
   cv.onclick = ev => {
     if (drag) return;
@@ -465,30 +448,18 @@ function drawKG(nodes, edges) {
     paint();
     if (!best) { document.getElementById("kgfacts").textContent = ""; return; }
     const facts = edges.filter(e => e.s === best.id || e.o === best.id);
+    const linked = [...new Set(facts.map(e => e.drawer).filter(Boolean))];
     document.getElementById("kgfacts").innerHTML =
-      `<b>${esc(best.id)}</b> (${best.count} facts)<br>` + facts.map((e, i) =>
-        `<div class="ev" data-drawer="${e.drawer || ""}" data-fi="${facts.indexOf(e)}" style="${e.drawer ? "cursor:pointer" : ""}">${esc(e.s)} &rarr; <b>${esc(e.p)}</b> &rarr; ${esc(e.o)}` + (e.current ? "" : ` <i>(ended${e.to ? " " + e.to.slice(0, 10) : ""})</i>`) +
+      `<b>${esc(best.id)}</b> (${best.count} facts)` +
+      (linked.length ? ` · <button class="ghost" id="kg-open">open linked memory</button>` : "") +
+      `<br>` + facts.map(e =>
+        `<div class="ev" data-drawer="${e.drawer || ""}" style="${e.drawer ? "cursor:pointer" : ""}">${esc(e.s)} &rarr; <b>${esc(e.p)}</b> &rarr; ${esc(e.o)}` + (e.current ? "" : ` <i>(ended${e.to ? " " + e.to.slice(0, 10) : ""})</i>`) +
         (e.drawer ? ` <span class="meta">open &#8594;</span>` : "") + `</div>`
       ).join("");
-    const box = document.getElementById("kgfacts");
-    box.querySelectorAll(".ev").forEach((el, i) => {
-      const e = facts[i];
-      el.style.cursor = "pointer";
-      el.onclick = () => {
-        if (e.drawer) { inspectDrawer(e.drawer); return; }
-        box.innerHTML += `<div class="statusline" id="fsearch">searching drawers about “${esc(e.s)}”…</div>`;
-        fetch("api/search?q=" + encodeURIComponent(e.s + " " + e.o) + "&n=5").then(r=>r.json()).then(sr=>{
-          const div = document.getElementById("fsearch");
-          if (!sr.ok || !sr.hits.length) { if (div) div.textContent = "no drawers mention it."; return; }
-          if (div) div.outerHTML = sr.hits.map(h =>
-            `<article class="ev" data-id="${h.id}"><span class="meta">${h.wing||""}/${h.room||""}` +
-            (h.distance != null ? ` · d=${h.distance}` : "") + `</span> ${(h.text||"").slice(0,140)}</article>`).join("");
-          wireInspector(box);
-        }).catch(err => {
-          const div = document.getElementById("fsearch");
-          if (div) div.textContent = "error: " + err;
-        });
-      };
+    const openBtn = document.getElementById("kg-open");
+    if (openBtn && linked.length) openBtn.onclick = () => inspectDrawer(linked[0]);
+    document.getElementById("kgfacts").querySelectorAll(".ev[data-drawer]").forEach(el => {
+      if (el.dataset.drawer) el.onclick = () => inspectDrawer(el.dataset.drawer);
     });
   };
   if (kgAnim) cancelAnimationFrame(kgAnim);
@@ -496,16 +467,20 @@ function drawKG(nodes, edges) {
 }
 document.getElementById("kgload").onclick = () => {
   const cur = document.getElementById("kgcur").checked;
-  document.getElementById("kgfacts").textContent = "loading…";
-  fetch("api/kg?limit=500").then(r=>r.json()).then(g=>{
+  document.getElementById("kgfacts").innerHTML = "<span class='statusline'>loading graph…</span>";
+  fetch("api/kg?limit=500", {signal: flightCtl.signal}).then(r=>r.json()).then(g=>{
     let edges = g.edges || [];
     if (cur) edges = edges.filter(e => e.current);
     const keep = new Set();
     edges.forEach(e => { keep.add(e.s); keep.add(e.o); });
     drawKG(g.nodes.filter(n => keep.has(n.id)), edges);
-    document.getElementById("kgfacts").textContent =
-      g.missing ? "no knowledge graph here." : `${edges.length} facts, drag nodes, click one.`;
-  }).catch(e => { document.getElementById("kgfacts").textContent = "error: " + e; });
+    if (!g.missing) document.getElementById("kgfacts").innerHTML =
+      `<span class="statusline">${edges.length} facts — drag nodes, scroll to zoom, click one.</span>`;
+    else document.getElementById("kgfacts").textContent = "no knowledge graph here.";
+  }).catch(e => {
+    if (String(e).includes("abort")) return;
+    document.getElementById("kgfacts").textContent = "error: " + e;
+  });
 };
 function svgBars(rows, val, maxv, w, h, bh) {
   const bw = Math.max(2, Math.floor(w / Math.max(1, rows.length)) - 2);
@@ -523,17 +498,25 @@ function loadStats() {
   fetchStream("api/stats?days=30&stream=1", pg, st, "scanning").then(t => {
     renderStats(t);
     Promise.all([
-      fetch("api/entities?limit=12").then(r=>r.json()),
-      fetch("api/diary?limit=3").then(r=>r.json()),
-    ]).then(([en, di]) => {
+      fetch("api/entities?limit=12", {signal: flightCtl.signal}).then(r=>r.json()),
+      fetch("api/diary?limit=3", {signal: flightCtl.signal}).then(r=>r.json()),
+      fetch("api/duplicates", {signal: flightCtl.signal}).then(r=>r.json()).catch(() => ({ok: false})),
+    ]).then(([en, di, du]) => {
       document.getElementById("entities").innerHTML = (en.entities || []).map(x =>
         `<span class="tag${x.current ? " cur" : " old"}" title="${x.facts} facts">${esc(x.entity)} ×${x.facts}</span>`).join(" ") || "none";
       document.getElementById("diary").innerHTML = (di.entries || []).map(e =>
-        `<article class="ev" data-id="${e.id}"><time datetime="${e.t||""}">${(e.t||"").slice(0,16).replace("T"," ")}</time> ` +
+        `<article class="ev" data-id="${e.id}"><time datetime="${e.t||""}">${esc((e.t||"").slice(0,16).replace("T"," "))}</time> ` +
         `<span class="meta">${esc(e.wing||"")}</span> ${esc((e.text||"").slice(0,160))}</article>`).join("") || "none";
       wireInspector(document.getElementById("diary"));
-    }).catch(e => { document.getElementById("entities").textContent = "error: " + e; });
-  }).catch(e => { document.getElementById("charts").textContent = "error: " + e; });
+      renderDupes(du);
+    }).catch(e => {
+      if (String(e).includes("abort")) return;
+      document.getElementById("entities").textContent = "error: " + e;
+    });
+  }).catch(e => {
+    if (String(e).includes("abort")) return;
+    document.getElementById("charts").textContent = "error: " + e;
+  });
 }
 function renderStats(st) {
   const days = st.by_day || [];
@@ -552,6 +535,172 @@ function renderStats(st) {
   });
   document.getElementById("charts").innerHTML = h;
   animateCount(document.getElementById("stotal"), tot);
+  if (!taxCache) fetch("api/taxonomy", {signal: flightCtl.signal}).then(r=>r.json()).then(t => {
+    taxCache = t;
+    document.getElementById("v").textContent = "v" + t.version;
+    renderStats(st);
+  }).catch(()=>{});
+}
+let dupGroups = [];
+function renderDupes(du) {
+  const box = document.getElementById("dups"), st = document.getElementById("st-dup");
+  if (!du.ok) { box.textContent = ""; return; }
+  dupGroups = du.groups || [];
+  const drop = du.total_droppable || 0;
+  document.getElementById("dup-heal").disabled = !drop;
+  if (!dupGroups.length) { box.innerHTML = "<p>No exact duplicates. The palace is clean.</p>"; st.textContent = ""; return; }
+  st.textContent = `${du.total_groups} duplicate sets · ${drop.toLocaleString()} droppable drawers (newest of each set is kept)`;
+  box.innerHTML = dupGroups.slice(0, 20).map((g, i) =>
+    `<article class="ev dup"><b>${g.count}×</b> <span class="meta">${esc(g.keep.wing||"")}/${esc(g.keep.room||"")}</span> ` +
+    `${esc((g.keep.preview||"").slice(0,120))}<br>` +
+    `<button class="ghost danger" data-heal="${i}">heal this set</button></article>`).join("") +
+    (dupGroups.length > 20 ? `<p class="statusline">showing 20 of ${dupGroups.length} sets</p>` : "");
+  box.querySelectorAll("[data-heal]").forEach(b => b.onclick = () => healSet(parseInt(b.dataset.heal), b));
+}
+function healSet(i, btn) {
+  const g = dupGroups[i];
+  if (!g) return;
+  btn.disabled = true; btn.textContent = "healing…";
+  const ids = g.drop.map(d => d.id);
+  fetch("api/cure", {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({action: "delete-drawers", ids, confirm: true}),
+    signal: flightCtl.signal}).then(r=>r.json()).then(r=>{
+    btn.textContent = r.ok ? `healed (−${r.deleted})` : "error: " + (r.error || r.failed);
+    if (r.ok) { dupGroups.splice(i, 1); setTimeout(() => loadStatsRefresh(), 800); }
+  }).catch(e => { btn.disabled = false; btn.textContent = "heal this set"; });
+}
+function loadStatsRefresh() {
+  loadedSecs.stats = false;
+  document.getElementById("charts").innerHTML = "";
+  document.getElementById("dups").innerHTML = "";
+  loadSection("stats");
+}
+document.getElementById("dup-scan").onclick = () => {
+  const pg = document.getElementById("pg-dup"), st = document.getElementById("st-dup");
+  document.getElementById("dup-heal").disabled = true;
+  fetchStream("api/duplicates?stream=1", pg, st, "scanning").then(renderDupes).catch(e => {
+    if (String(e).includes("abort")) return;
+    st.textContent = "error: " + e;
+  });
+};
+document.getElementById("dup-heal").onclick = (ev) => {
+  const btn = ev.target;
+  const ids = dupGroups.flatMap(g => g.drop.map(d => d.id));
+  if (!ids.length) return;
+  if (!btn.dataset.armed) {
+    btn.dataset.armed = "1";
+    btn.textContent = `Confirm heal ${ids.length} drawers?`;
+    return;
+  }
+  btn.disabled = true; btn.textContent = "healing…";
+  fetch("api/cure", {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({action: "delete-drawers", ids, confirm: true}),
+    signal: flightCtl.signal}).then(r=>r.json()).then(r=>{
+    btn.textContent = r.ok ? `healed −${r.deleted}` : "error: " + (r.error || r.failed);
+    delete btn.dataset.armed;
+    if (r.ok) setTimeout(() => loadStatsRefresh(), 800);
+  }).catch(e => { btn.disabled = false; });
+};
+function inspectDrawer(id) {
+  if (!id) return;
+  show("inspector");
+  const box = document.getElementById("insp"), sim = document.getElementById("sim");
+  box.innerHTML = "loading…"; sim.innerHTML = "";
+  fetch("api/drawer?id=" + encodeURIComponent(id), {signal: flightCtl.signal}).then(r=>r.json()).then(d=>{
+    if (!d.ok) { box.textContent = d.error || "not found"; return; }
+    box.innerHTML =
+      `<table class="meta">` +
+      `<tr><td>wing / room</td><td>${esc(d.wing||"?")} / ${esc(d.room||"?")}</td></tr>` +
+      `<tr><td>filed</td><td><time datetime="${d.filed_at||""}">${esc((d.filed_at||"").slice(0,16).replace("T"," "))}</time></td></tr>` +
+      (d.source_file ? `<tr><td>source</td><td>${esc(d.source_file.split("/").pop())}</td></tr>` : "") +
+      (d.entities ? `<tr><td>entities</td><td>${esc(d.entities)}</td></tr>` : "") +
+      `</table><pre class="full"></pre>`;
+    box.querySelector("pre").textContent = d.text || "(empty)";
+    const cure = document.createElement("div");
+    cure.innerHTML =
+      `<div style="margin:.6em 0">` +
+      `<button class="ghost" id="cu-edit">Edit text</button> ` +
+      `<button class="ghost" id="cu-move">Move wing/room</button> ` +
+      `<button class="ghost danger" id="cu-del">Delete</button> ` +
+      `<span id="cu-msg" class="statusline"></span></div>` +
+      `<div id="cu-form"></div>`;
+    box.appendChild(cure);
+    const msg = (t) => { cure.querySelector("#cu-msg").textContent = t; };
+    const post = (body) => fetch("api/cure", {method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body), signal: flightCtl.signal}).then(r=>r.json());
+    cure.querySelector("#cu-edit").onclick = () => {
+      cure.querySelector("#cu-form").innerHTML =
+        `<textarea id="cu-text" rows="6" style="width:100%"></textarea><br>` +
+        `<button id="cu-save">Save changes</button>`;
+      cure.querySelector("#cu-text").value = d.text || "";
+      cure.querySelector("#cu-save").onclick = () => {
+        msg("saving…");
+        post({action: "update-drawer", id, content: cure.querySelector("#cu-text").value}).then(r=>{
+          msg(r.ok ? "Saved." : "error: " + (r.error || "?"));
+          if (r.ok) inspectDrawer(id);
+        }).catch(e => { if (!String(e).includes("abort")) msg("error: " + e); });
+      };
+    };
+    cure.querySelector("#cu-move").onclick = () => {
+      cure.querySelector("#cu-form").innerHTML =
+        `<label>wing <input id="cu-wing" size="12" value="${esc(d.wing||"")}"></label> ` +
+        `<label>room <input id="cu-room" size="12" value="${esc(d.room||"")}"></label> ` +
+        `<button id="cu-save">Move</button>`;
+      cure.querySelector("#cu-save").onclick = () => {
+        msg("saving…");
+        post({action: "update-drawer", id,
+              wing: cure.querySelector("#cu-wing").value,
+              room: cure.querySelector("#cu-room").value}).then(r=>{
+          msg(r.ok ? "Moved." : "error: " + (r.error || "?"));
+          if (r.ok) inspectDrawer(id);
+        }).catch(e => { if (!String(e).includes("abort")) msg("error: " + e); });
+      };
+    };
+    cure.querySelector("#cu-del").onclick = () => {
+      cure.querySelector("#cu-form").innerHTML =
+        `<b>Delete forever?</b> <button class="danger" id="cu-yes">Yes, delete</button> `;
+      cure.querySelector("#cu-yes").onclick = () => {
+        msg("deleting…");
+        post({action: "delete-drawer", id, confirm: true}).then(r=>{
+          msg(r.ok ? "Deleted." : "error: " + (r.error || "?"));
+          if (r.ok) { box.innerHTML = "<p>Drawer deleted.</p>"; loadedSecs.timeline = false; }
+        }).catch(e => { if (!String(e).includes("abort")) msg("error: " + e); });
+      };
+    };
+    fetch("api/similar?id=" + encodeURIComponent(id) + "&n=5", {signal: flightCtl.signal}).then(r=>r.json()).then(s=>{
+      if (!s.ok || !s.similar.length) { sim.textContent = "no similar drawers found."; return; }
+      sim.innerHTML = s.similar.map(x =>
+        `<article class="ev" data-id="${x.id}"><span class="meta">${esc(x.wing)}/${esc(x.room)}` +
+        (x.distance != null ? ` · d=${x.distance}` : "") + `</span> ${esc((x.preview||"").slice(0,140))}</article>`).join("");
+      wireInspector(sim);
+    }).catch(e => { if (!String(e).includes("abort")) sim.textContent = "error: " + e; });
+    fetch("api/thread?id=" + encodeURIComponent(id) + "&window=3", {signal: flightCtl.signal}).then(r=>r.json()).then(t=>{
+      if (!t.ok || !t.chunks.length) return;
+      const th = document.createElement("div");
+      th.innerHTML = `<h3>Thread <span class="meta">chunk ${t.pos + 1} of ${t.total} in ${esc(t.source||"")}</span></h3>` +
+        t.chunks.map(c =>
+        `<article class="ev"${c.current ? ' style="border-color:var(--acc)"' : ""}>` +
+        `<span class="meta">#${c.n} · ${esc(c.room||"")} · ${(c.t||"").slice(0,16).replace("T"," ")}</span><br>` +
+        `${esc((c.text||"").slice(0,600))}</article>`).join("");
+      box.appendChild(th);
+    }).catch(()=>{});
+  }).catch(e => { if (!String(e).includes("abort")) box.textContent = "error: " + e; });
+}
+function factSearch(box, s, o) {
+  box.innerHTML += `<div class="statusline">searching drawers about “${esc(s)}”…</div>`;
+  fetch("api/search?q=" + encodeURIComponent(s + " " + o) + "&n=5", {signal: flightCtl.signal}).then(r=>r.json()).then(sr=>{
+    if (!sr.ok || !sr.hits.length) { box.querySelector(".statusline").textContent = "no drawers mention it."; return; }
+    const div = document.createElement("div");
+    div.innerHTML = sr.hits.map(h =>
+      `<article class="ev" data-id="${h.id}"><span class="meta">${esc(h.wing||"")}/${esc(h.room||"")}` +
+      (h.distance != null ? ` · d=${h.distance}` : "") + `</span> ${esc((h.text||"").slice(0,140))}</article>`).join("");
+    box.querySelector(".statusline").replaceWith(div);
+    wireInspector(box);
+  }).catch(err => {
+    if (String(err).includes("abort")) return;
+    box.querySelector(".statusline").textContent = "error: " + err;
+  });
 }
 document.getElementById("nm-save").onclick = () => {
   const m = document.getElementById("nm-msg");
@@ -559,10 +708,10 @@ document.getElementById("nm-save").onclick = () => {
     wing: document.getElementById("nm-wing").value,
     room: document.getElementById("nm-room").value,
     content: document.getElementById("nm-text").value};
-  m.textContent = "archiving…";
+  m.textContent = "filing…";
   fetch("api/cure", {method: "POST", headers: {"Content-Type": "application/json"},
     body: JSON.stringify(body)}).then(r=>r.json()).then(r=>{
-    m.textContent = r.ok ? "ricordo archiviato: " + (r.drawer_id || "") : "errore: " + (r.error || "?");
+    m.textContent = r.ok ? "Memory filed: " + (r.drawer_id || "") : "error: " + (r.error || "?");
     if (r.ok) document.getElementById("nm-text").value = "";
   }).catch(e => { m.textContent = "error: " + e; });
 };
@@ -572,7 +721,6 @@ fetch("api/health").then(r=>r.json()).then(h=>{
   document.getElementById("health").textContent = h.palace;
 }).catch(()=>{});
 </script></body></html>
-
 
 """
 
@@ -686,14 +834,15 @@ class Handler(BaseHTTPRequestHandler):
                 qs = parse_qs(parsed.query or "")
                 wing = (qs.get("wing") or [None])[0]
                 lim = min(int((qs.get("limit") or [200])[0]), 1000)
+                off = max(int((qs.get("offset") or [0])[0]), 0)
                 if "stream" in qs:
-                    stream_ndjson(self, timeline_scan(self.server.palace_path, wing, lim))  # type: ignore[arg-type]
+                    stream_ndjson(self, timeline_scan(self.server.palace_path, wing, lim, off))  # type: ignore[arg-type]
                 else:
                     self._json(
                         timeline(
                             self.server.palace_path,  # type: ignore[attr-defined]
                             wing=wing,
-                            limit=lim,
+                            limit=lim, offset=off,
                         )
                     )
             except Exception as exc:  # noqa: BLE001
@@ -772,6 +921,15 @@ class Handler(BaseHTTPRequestHandler):
                          "text": (h.get("text") or h.get("document") or "")[:220],
                          "distance": h.get("distance")}
                         for h in hits if isinstance(h, dict)]})
+            except Exception as exc:  # noqa: BLE001
+                self._json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, 500)
+        elif parsed.path == "/api/duplicates":
+            try:
+                qs = parse_qs(parsed.query or "")
+                if "stream" in qs:
+                    stream_ndjson(self, duplicates_scan(self.server.palace_path))  # type: ignore[arg-type]
+                else:
+                    self._json(duplicates(self.server.palace_path))  # type: ignore[attr-defined]
             except Exception as exc:  # noqa: BLE001
                 self._json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, 500)
         elif parsed.path == "/api/entities":
@@ -998,6 +1156,17 @@ def cure(body: dict) -> dict:
             return {"ok": False, "error": "pass confirm:true — deletes are forever"}
         r = cure_write(S.tool_delete_drawer, did)
         return {"ok": bool(r.get("success", True)), **r}
+    if action == "delete-drawers":
+        ids = body.get("ids") or []
+        if not isinstance(ids, list) or not ids:
+            return {"ok": False, "error": "missing ids[]"}
+        if body.get("confirm") is not True:
+            return {"ok": False, "error": "pass confirm:true — deletes are forever"}
+        done, failed = [], []
+        for did in ids[:500]:
+            r = cure_write(S.tool_delete_drawer, did)
+            (done if r.get("success", True) else failed).append(did)
+        return {"ok": not failed, "deleted": len(done), "failed": failed}
     if action == "add-drawer":
         for k in ("wing", "room", "content"):
             if not (body.get(k) or "").strip():
@@ -1027,6 +1196,62 @@ def cure(body: dict) -> dict:
         ok = not (isinstance(r, dict) and r.get("success") is False)
         return {"ok": ok, **(r if isinstance(r, dict) else {"result": r})}
     return {"ok": False, "error": f"unknown action: {action or '(empty)'}"}
+
+
+
+def duplicates_scan(palace_path: str, cap: int = 100):
+    """Duplicate sets by normalized-text hash. The Sep-2026 blow-up filed
+    the same exchanges 2-3x with different date lines, so content_hash (new
+    recipe, only 530 rows carry it) is blind — full-text compare is the only
+    honest signal: 821 groups / 19,977 rows measured. Keeps the newest filed
+    of each set."""
+    import hashlib
+    from collections import defaultdict
+
+    yield {"phase": "scan", "progress": 0}
+    col = open_collection(palace_path)
+    total = col.count()
+    groups: dict = defaultdict(list)
+    offset = 0
+    while True:
+        res = col.get(limit=2000, offset=offset, include=["metadatas", "documents"])
+        metas = res.get("metadatas") or []
+        docs = res.get("documents") or []
+        if not metas:
+            break
+        for i, m, d in zip(res.get("ids") or [], metas, docs or []):
+            t = " ".join(((d or "").split()))
+            if not t:
+                continue
+            m = m or {}
+            groups[hashlib.sha256(t.encode()).hexdigest()].append({
+                "id": i, "wing": m.get("wing"), "room": m.get("room"),
+                "t": m.get("filed_at") or m.get("authored_at"),
+                "preview": t[:120]})
+        offset += len(metas)
+        yield {"phase": "scan", "done": offset, "total": total,
+               "progress": round(offset / max(1, total), 3)}
+        if len(metas) < 2000:
+            break
+    dupes = []
+    for h, members in groups.items():
+        if len(members) < 2:
+            continue
+        members.sort(key=lambda x: x["t"] or "", reverse=True)
+        dupes.append({"hash": h[:12], "count": len(members), "keep": members[0],
+                      "drop": members[1:]})
+    dupes.sort(key=lambda g: -g["count"])
+    yield {"done": True, "result": {
+        "ok": True, "groups": dupes[:cap], "total_groups": len(dupes),
+        "total_droppable": sum(g["count"] - 1 for g in dupes)}}
+
+
+def duplicates(palace_path: str, cap: int = 100) -> dict:
+    last = None
+    for msg in duplicates_scan(palace_path, cap):
+        if msg.get("done"):
+            last = msg["result"]
+    return last or {"ok": False, "error": "no result"}
 
 
 def thread_around(palace_path: str, drawer_id: str, window: int = 3) -> dict:
@@ -1229,7 +1454,7 @@ def kg_path(palace_path: str) -> str:
     return os.path.expanduser("~/.mempalace/knowledge_graph.sqlite3")
 
 
-def timeline(palace_path: str, wing: str | None = None, limit: int = 200) -> dict:
+def timeline(palace_path: str, wing: str | None = None, limit: int = 200, offset: int = 0) -> dict:
     """Merged timeline: drawer filings + KG fact lifecycles, newest first.
 
     Drawers carry filed_at (fallback authored_at); KG triples carry
@@ -1290,10 +1515,12 @@ def timeline(palace_path: str, wing: str | None = None, limit: int = 200) -> dic
     except Exception:
         pass  # KG unreadable: timeline degrades to drawers, never fails
     events.sort(key=lambda e: e["t"], reverse=True)
-    return {"ok": True, "wing": wing, "count": len(events[:limit]), "events": events[:limit]}
+    page = events[offset:offset + limit]
+    return {"ok": True, "wing": wing, "count": len(events), "offset": offset,
+            "events": page}
 
 
-def timeline_scan(palace_path: str, wing: str | None = None, limit: int = 200):
+def timeline_scan(palace_path: str, wing: str | None = None, limit: int = 200, offset: int = 0):
     """Same numbers as timeline(), in 3 phases the bar can honestly show:
     drawers loaded, KG merged, done. No invented percentages — N of 3 steps."""
     import sqlite3
@@ -1349,8 +1576,9 @@ def timeline_scan(palace_path: str, wing: str | None = None, limit: int = 200):
     except Exception:
         pass
     events.sort(key=lambda e: e["t"], reverse=True)
-    yield {"done": True, "result": {"ok": True, "wing": wing,
-           "count": len(events[:limit]), "events": events[:limit]}}
+    page = events[offset:offset + limit]
+    yield {"done": True, "result": {"ok": True, "wing": wing, "count": len(events),
+           "offset": offset, "events": page}}
 
 
 def main(argv: list | None = None) -> int:

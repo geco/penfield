@@ -26,7 +26,7 @@ All JSON, all read-only: `/api/health`, `/api/taxonomy`, `/api/timeline?wing=&li
 
 ## Status
 
-v0.2.0: curation (correct/move/delete/invent), thread view, HTML-escaped rendering.
+v0.3.0: English UI, sidebar layout, heal duplicates, paged timeline, local filter, zoomable graph.
 
 v0.1.5: dark theme, inspector + similar, live KG, top entities, diary feed.
 
