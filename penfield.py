@@ -20,10 +20,10 @@ import argparse
 import json
 import os
 import sys
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer as HTTPServer
 from urllib.parse import urlparse, parse_qs
 
-VERSION = "0.1.9"
+VERSION = "0.2.0"
 DEFAULT_PORT = 8766
 
 
@@ -156,6 +156,13 @@ footer{margin-top:2.5em;color:var(--mut);font-size:.82em;border-top:1px solid va
 </section>
 <section id="s-inspector" aria-labelledby="h-inspector">
 <h2 id="h-inspector">Inspector</h2>
+<details id="newmem"><summary style="cursor:pointer"><b>+ Nuovo ricordo</b> (inventalo: wing, stanza, testo)</summary>
+<div style="margin:.5em 0">
+<label>wing <input id="nm-wing" size="12" value="test"></label>
+<label>room <input id="nm-room" size="12" value="general"></label><br>
+<textarea id="nm-text" rows="3" style="width:100%" placeholder="Il ricordo, con parole tue…"></textarea><br>
+<button id="nm-save">Archivia ricordo</button> <span id="nm-msg" class="statusline"></span>
+</div></details>
 <div id="insp"></div>
 <h3>Similar drawers</h3>
 <div id="sim"></div>
@@ -163,6 +170,7 @@ footer{margin-top:2.5em;color:var(--mut);font-size:.82em;border-top:1px solid va
 </main>
 <footer><small>penfield is read-only: it never writes to your palace. Served from localhost.</small></footer>
 <script>
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const kindIcon = {drawer:"&#x25a3;", diary:"&#x270e;", fact:"&#x21d2;", "fact-ended":"&#x21d0;"};
 let flightCtl = null;
 function show(sec) {
@@ -230,17 +238,17 @@ function evHtml(e) {
     ? ` data-s="${(e.s||"").replace(/"/g, "")}" data-o="${(e.o||"").replace(/"/g, "")}"` : "";
   return `<article class="ev" data-id="${e.id || ""}" data-kind="${e.kind}"${extra}><span title="${e.kind}">${kindIcon[e.kind]||"&#x25a3;"}</span> ` +
     `<time datetime="${e.t||""}">${(e.t||"").slice(0,16).replace("T"," ")}</time> ` +
-    (e.wing ? `<span class="meta">${e.wing}${e.room ? "/" + e.room : ""}</span> ` : "") +
-    `${(e.text||"").slice(0,140)}</article>`;
+    (e.wing ? `<span class="meta">${esc(e.wing)}${e.room ? "/" + esc(e.room) : ""}</span> ` : "") +
+    `${esc((e.text||"").slice(0,140))}</article>`;
 }
 function factSearch(box, s, o) {
-  box.innerHTML += `<div class="statusline">searching drawers about “${s}”…</div>`;
+  box.innerHTML += `<div class="statusline">searching drawers about “${esc(s)}”…</div>`;
   fetch("api/search?q=" + encodeURIComponent(s + " " + o) + "&n=5").then(r=>r.json()).then(sr=>{
     if (!sr.ok || !sr.hits.length) { box.querySelector(".statusline").textContent = "no drawers mention it."; return; }
     const div = document.createElement("div");
     div.innerHTML = sr.hits.map(h =>
-      `<article class="ev" data-id="${h.id}"><span class="meta">${h.wing||""}/${h.room||""}` +
-      (h.distance != null ? ` · d=${h.distance}` : "") + `</span> ${(h.text||"").slice(0,140)}</article>`).join("");
+      `<article class="ev" data-id="${h.id}"><span class="meta">${esc(h.wing||"")}/${esc(h.room||"")}` +
+      (h.distance != null ? ` · d=${h.distance}` : "") + `</span> ${esc((h.text||"").slice(0,140))}</article>`).join("");
     box.querySelector(".statusline").replaceWith(div);
     wireInspector(box);
   }).catch(err => { box.querySelector(".statusline").textContent = "error: " + err; });
@@ -275,8 +283,8 @@ function renderTaxonomy(t) {
   document.getElementById("wings").innerHTML =
     `<p><span class="count" id="wtotal">0</span> drawers across ${t.wings.length} wings</p>` +
     t.wings.map(w =>
-    `<article class="wing"><b>${w.name}</b> — ${w.drawers.toLocaleString()} drawers` +
-    w.rooms.map(r => `<div class="room">&nbsp;&nbsp;${r.name}: ${r.drawers.toLocaleString()}</div>`).join("") +
+    `<article class="wing"><b>${esc(w.name)}</b> — ${w.drawers.toLocaleString()} drawers` +
+    w.rooms.map(r => `<div class="room">&nbsp;&nbsp;${esc(r.name)}: ${r.drawers.toLocaleString()}</div>`).join("") +
     `</article>`).join("");
   animateCount(document.getElementById("wtotal"), total);
 }
@@ -299,12 +307,64 @@ function inspectDrawer(id) {
     if (!d.ok) { box.textContent = d.error || "not found"; return; }
     box.innerHTML =
       `<table class="meta">` +
-      `<tr><td>wing / room</td><td>${d.wing||"?"} / ${d.room||"?"}</td></tr>` +
+      `<tr><td>wing / room</td><td>${esc(d.wing||"?")} / ${esc(d.room||"?")}</td></tr>` +
       `<tr><td>filed</td><td><time datetime="${d.filed_at||""}">${(d.filed_at||"").slice(0,16).replace("T"," ")}</time></td></tr>` +
-      (d.source_file ? `<tr><td>source</td><td>${d.source_file.split("/").pop()}</td></tr>` : "") +
-      (d.entities ? `<tr><td>entities</td><td>${d.entities}</td></tr>` : "") +
+      (d.source_file ? `<tr><td>source</td><td>${esc(d.source_file.split("/").pop())}</td></tr>` : "") +
+      (d.entities ? `<tr><td>entities</td><td>${esc(d.entities)}</td></tr>` : "") +
       `</table><pre class="full"></pre>`;
     box.querySelector("pre").textContent = d.text || "(empty)";
+    const cure = document.createElement("div");
+    cure.innerHTML =
+      `<div style="margin:.6em 0">` +
+      `<button class="ghost" id="cu-edit">Correggi testo</button> ` +
+      `<button class="ghost" id="cu-move">Sposta wing/room</button> ` +
+      `<button class="ghost" id="cu-del">Elimina</button> ` +
+      `<span id="cu-msg" class="statusline"></span></div>` +
+      `<div id="cu-form"></div>`;
+    box.appendChild(cure);
+    const msg = (t) => { cure.querySelector("#cu-msg").textContent = t; };
+    const post = (body) => fetch("api/cure", {method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body), signal: flightCtl.signal}).then(r=>r.json());
+    cure.querySelector("#cu-edit").onclick = () => {
+      cure.querySelector("#cu-form").innerHTML =
+        `<textarea id="cu-text" rows="6" style="width:100%"></textarea><br>` +
+        `<button id="cu-save">Salva correzione</button>`;
+      cure.querySelector("#cu-text").value = d.text || "";
+      cure.querySelector("#cu-save").onclick = () => {
+        msg("saving…");
+        post({action: "update-drawer", id, content: cure.querySelector("#cu-text").value}).then(r=>{
+          msg(r.ok ? "corretto." : "errore: " + (r.error || "?"));
+          if (r.ok) inspectDrawer(id);
+        }).catch(e => msg("error: " + e));
+      };
+    };
+    cure.querySelector("#cu-move").onclick = () => {
+      cure.querySelector("#cu-form").innerHTML =
+        `<label>wing <input id="cu-wing" size="12" value="${d.wing||""}"></label> ` +
+        `<label>room <input id="cu-room" size="12" value="${d.room||""}"></label> ` +
+        `<button id="cu-save">Sposta</button>`;
+      cure.querySelector("#cu-save").onclick = () => {
+        msg("saving…");
+        post({action: "update-drawer", id,
+              wing: cure.querySelector("#cu-wing").value,
+              room: cure.querySelector("#cu-room").value}).then(r=>{
+          msg(r.ok ? "spostato." : "errore: " + (r.error || "?"));
+          if (r.ok) inspectDrawer(id);
+        }).catch(e => msg("error: " + e));
+      };
+    };
+    cure.querySelector("#cu-del").onclick = () => {
+      cure.querySelector("#cu-form").innerHTML =
+        `<b>Eliminare per sempre?</b> <button id="cu-yes">Sì, elimina</button> `;
+      cure.querySelector("#cu-yes").onclick = () => {
+        msg("deleting…");
+        post({action: "delete-drawer", id, confirm: true}).then(r=>{
+          msg(r.ok ? "eliminato." : "errore: " + (r.error || "?"));
+          if (r.ok) { box.innerHTML = "<p>Drawer eliminato.</p>"; loadedSecs.timeline = false; }
+        }).catch(e => msg("error: " + e));
+      };
+    };
     const th = document.createElement("div");
     th.innerHTML = "<h3>Thread</h3><div>loading…</div>";
     box.appendChild(th);
@@ -313,13 +373,13 @@ function inspectDrawer(id) {
       th.lastElementChild.innerHTML = `<p class="meta">chunk ${t.pos + 1} of ${t.total} in ${t.source}</p>` + t.chunks.map(c =>
         `<article class="ev"${c.current ? ' style="border-color:var(--acc)"' : ""}>` +
         `<span class="meta">#${c.n} · ${c.room||""} · ${(c.t||"").slice(0,16).replace("T"," ")}</span><br>` +
-        `${(c.text||"").slice(0,600)}</article>`).join("");
+        `${esc((c.text||"").slice(0,600))}</article>`).join("");
     }).catch(e => { th.lastElementChild.textContent = "error: " + e; });
     fetch("api/similar?id=" + encodeURIComponent(id) + "&n=5").then(r=>r.json()).then(s=>{
       if (!s.ok || !s.similar.length) { sim.textContent = "no similar drawers found."; return; }
       sim.innerHTML = s.similar.map(x =>
-        `<article class="ev" data-id="${x.id}"><span class="meta">${x.wing}/${x.room}` +
-        (x.distance != null ? ` · d=${x.distance}` : "") + `</span> ${(x.preview||"").slice(0,140)}</article>`).join("");
+        `<article class="ev" data-id="${x.id}"><span class="meta">${esc(x.wing)}/${esc(x.room)}` +
+        (x.distance != null ? ` · d=${x.distance}` : "") + `</span> ${esc((x.preview||"").slice(0,140))}</article>`).join("");
       wireInspector(sim);
     }).catch(e => { sim.textContent = "error: " + e; });
   }).catch(e => { box.textContent = "error: " + e; });
@@ -406,8 +466,8 @@ function drawKG(nodes, edges) {
     if (!best) { document.getElementById("kgfacts").textContent = ""; return; }
     const facts = edges.filter(e => e.s === best.id || e.o === best.id);
     document.getElementById("kgfacts").innerHTML =
-      `<b>${best.id}</b> (${best.count} facts)<br>` + facts.map((e, i) =>
-        `<div class="ev" data-drawer="${e.drawer || ""}" data-fi="${facts.indexOf(e)}" style="${e.drawer ? "cursor:pointer" : ""}">${e.s} &rarr; <b>${e.p}</b> &rarr; ${e.o}` + (e.current ? "" : ` <i>(ended${e.to ? " " + e.to.slice(0, 10) : ""})</i>`) +
+      `<b>${esc(best.id)}</b> (${best.count} facts)<br>` + facts.map((e, i) =>
+        `<div class="ev" data-drawer="${e.drawer || ""}" data-fi="${facts.indexOf(e)}" style="${e.drawer ? "cursor:pointer" : ""}">${esc(e.s)} &rarr; <b>${esc(e.p)}</b> &rarr; ${esc(e.o)}` + (e.current ? "" : ` <i>(ended${e.to ? " " + e.to.slice(0, 10) : ""})</i>`) +
         (e.drawer ? ` <span class="meta">open &#8594;</span>` : "") + `</div>`
       ).join("");
     const box = document.getElementById("kgfacts");
@@ -416,7 +476,7 @@ function drawKG(nodes, edges) {
       el.style.cursor = "pointer";
       el.onclick = () => {
         if (e.drawer) { inspectDrawer(e.drawer); return; }
-        box.innerHTML += `<div class="statusline" id="fsearch">searching drawers about “${e.s}”…</div>`;
+        box.innerHTML += `<div class="statusline" id="fsearch">searching drawers about “${esc(e.s)}”…</div>`;
         fetch("api/search?q=" + encodeURIComponent(e.s + " " + e.o) + "&n=5").then(r=>r.json()).then(sr=>{
           const div = document.getElementById("fsearch");
           if (!sr.ok || !sr.hits.length) { if (div) div.textContent = "no drawers mention it."; return; }
@@ -467,10 +527,10 @@ function loadStats() {
       fetch("api/diary?limit=3").then(r=>r.json()),
     ]).then(([en, di]) => {
       document.getElementById("entities").innerHTML = (en.entities || []).map(x =>
-        `<span class="tag${x.current ? " cur" : " old"}" title="${x.facts} facts">${x.entity} ×${x.facts}</span>`).join(" ") || "none";
+        `<span class="tag${x.current ? " cur" : " old"}" title="${x.facts} facts">${esc(x.entity)} ×${x.facts}</span>`).join(" ") || "none";
       document.getElementById("diary").innerHTML = (di.entries || []).map(e =>
         `<article class="ev" data-id="${e.id}"><time datetime="${e.t||""}">${(e.t||"").slice(0,16).replace("T"," ")}</time> ` +
-        `<span class="meta">${e.wing||""}</span> ${(e.text||"").slice(0,160)}</article>`).join("") || "none";
+        `<span class="meta">${esc(e.wing||"")}</span> ${esc((e.text||"").slice(0,160))}</article>`).join("") || "none";
       wireInspector(document.getElementById("diary"));
     }).catch(e => { document.getElementById("entities").textContent = "error: " + e; });
   }).catch(e => { document.getElementById("charts").textContent = "error: " + e; });
@@ -488,11 +548,24 @@ function renderStats(st) {
   h += "<h3>Drawers per wing</h3>";
   wings.forEach(w => {
     const pct = Math.round((w.drawers / maxw) * 100);
-    h += `<div style="font-size:.9em">${w.name} <span class="bar" style="display:inline-block;height:10px;width:${Math.max(2, pct * 3)}px"></span> ${w.drawers.toLocaleString()}</div>`;
+    h += `<div style="font-size:.9em">${esc(w.name)} <span class="bar" style="display:inline-block;height:10px;width:${Math.max(2, pct * 3)}px"></span> ${w.drawers.toLocaleString()}</div>`;
   });
   document.getElementById("charts").innerHTML = h;
   animateCount(document.getElementById("stotal"), tot);
 }
+document.getElementById("nm-save").onclick = () => {
+  const m = document.getElementById("nm-msg");
+  const body = {action: "add-drawer",
+    wing: document.getElementById("nm-wing").value,
+    room: document.getElementById("nm-room").value,
+    content: document.getElementById("nm-text").value};
+  m.textContent = "archiving…";
+  fetch("api/cure", {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body)}).then(r=>r.json()).then(r=>{
+    m.textContent = r.ok ? "ricordo archiviato: " + (r.drawer_id || "") : "errore: " + (r.error || "?");
+    if (r.ok) document.getElementById("nm-text").value = "";
+  }).catch(e => { m.textContent = "error: " + e; });
+};
 // health only: fast, no scan — the welcome page stays empty otherwise.
 fetch("api/health").then(r=>r.json()).then(h=>{
   document.getElementById("v").textContent = "v" + h.version;
@@ -578,6 +651,21 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
 
+    def do_POST(self) -> None:  # noqa: N802
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/cure":
+            # Curation actions: the regulator mandate. Short-lived writes —
+            # same tool functions the MCP server calls, lock held seconds,
+            # never a lifetime lease.
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
+                self._json(cure(body))
+            except Exception as exc:  # noqa: BLE001
+                self._json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, 500)
+        else:
+            self._json({"ok": False, "error": "not found"}, 404)
+
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         if parsed.path in ("/", "/index.html"):
@@ -660,6 +748,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(recent_diary(self.server.palace_path, n))  # type: ignore[attr-defined]
             except Exception as exc:  # noqa: BLE001
                 self._json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, 500)
+        elif parsed.path == "/api/cure":
+            self._json({"ok": False,
+                        "error": "POST JSON here: {action: update-drawer|delete-drawer|add-drawer|kg-add|kg-supersede|kg-invalidate, ...}"},
+                       405)
         elif parsed.path == "/api/search":
             try:
                 import mempalace.searcher
@@ -852,6 +944,89 @@ def similar_to(palace_path: str, drawer_id: str, n: int = 5) -> dict:
             break
     return {"ok": True, "id": drawer_id, "similar": out}
 
+
+
+
+def cure_write(fn, *args, **kwargs):
+    """Run a Chroma write with retry on lock contention only (~5 min),
+    then fail loudly. Same discipline as mp-write.py one-shots."""
+    import time
+
+    last = None
+    for attempt, wait in enumerate([0, 10, 20, 40, 80, 160]):
+        if wait:
+            time.sleep(wait)
+        try:
+            last = fn(*args, **kwargs)
+        except Exception as exc:  # noqa: BLE001
+            if "MineAlreadyRunning" in type(exc).__name__:
+                last = {"success": False, "error": f"another mine is in progress: {exc}"}
+            else:
+                return {"success": False, "error": f"{type(exc).__name__}: {exc}"}
+        if isinstance(last, dict) and last.get("success", True):
+            return last if isinstance(last, dict) else {"success": True, "result": last}
+        err = str((last or {}).get("error", "") if isinstance(last, dict) else last)
+        if "another mine is in progress" not in err and "held by" not in err:
+            return last if isinstance(last, dict) else {"success": False, "error": err}
+        if attempt >= 5:
+            break
+    return {"success": False, "error": "palace busy for ~5 minutes; retry later"}
+
+
+def cure(body: dict) -> dict:
+    """Dispatch a curation action. Every branch returns loud JSON."""
+    import mempalace.mcp_server as S
+
+    action = (body.get("action") or "").strip()
+    if action == "update-drawer":
+        did = body.get("id") or ""
+        if not did:
+            return {"ok": False, "error": "missing id"}
+        kw = {}
+        for k in ("content", "wing", "room"):
+            if body.get(k) is not None:
+                kw[k] = body[k]
+        if not kw:
+            return {"ok": False, "error": "nothing to update"}
+        r = cure_write(S.tool_update_drawer, did, **kw)
+        return {"ok": bool(r.get("success", True)), **r}
+    if action == "delete-drawer":
+        did = body.get("id") or ""
+        if not did:
+            return {"ok": False, "error": "missing id"}
+        if body.get("confirm") is not True:
+            return {"ok": False, "error": "pass confirm:true — deletes are forever"}
+        r = cure_write(S.tool_delete_drawer, did)
+        return {"ok": bool(r.get("success", True)), **r}
+    if action == "add-drawer":
+        for k in ("wing", "room", "content"):
+            if not (body.get(k) or "").strip():
+                return {"ok": False, "error": f"missing {k} — invented memories need an address"}
+        r = cure_write(S.tool_add_drawer, body["wing"].strip(), body["room"].strip(),
+                       body["content"])
+        return {"ok": bool(r.get("success", True)), **r}
+    if action == "kg-add":
+        for k in ("subject", "predicate", "object"):
+            if not (body.get(k) or "").strip():
+                return {"ok": False, "error": f"missing {k}"}
+        r = S.tool_kg_add(body["subject"], body["predicate"], body["object"])
+        ok = not (isinstance(r, dict) and r.get("success") is False)
+        return {"ok": ok, **(r if isinstance(r, dict) else {"result": r})}
+    if action == "kg-supersede":
+        for k in ("subject", "predicate", "old", "new"):
+            if body.get(k) is None:
+                return {"ok": False, "error": f"missing {k}"}
+        r = S.tool_kg_supersede(body["subject"], body["predicate"], body["old"], body["new"])
+        ok = not (isinstance(r, dict) and r.get("success") is False)
+        return {"ok": ok, **(r if isinstance(r, dict) else {"result": r})}
+    if action == "kg-invalidate":
+        for k in ("subject", "predicate", "object"):
+            if body.get(k) is None:
+                return {"ok": False, "error": f"missing {k}"}
+        r = S.tool_kg_invalidate(body["subject"], body["predicate"], body["object"])
+        ok = not (isinstance(r, dict) and r.get("success") is False)
+        return {"ok": ok, **(r if isinstance(r, dict) else {"result": r})}
+    return {"ok": False, "error": f"unknown action: {action or '(empty)'}"}
 
 
 def thread_around(palace_path: str, drawer_id: str, window: int = 3) -> dict:
