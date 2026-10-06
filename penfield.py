@@ -23,7 +23,7 @@ import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
 
-VERSION = "0.1.7"
+VERSION = "0.1.8"
 DEFAULT_PORT = 8766
 
 
@@ -180,7 +180,8 @@ const loadedSecs = {};
 function loadSection(sec) {
   if (sec === "inspector" || loadedSecs[sec]) return;
   loadedSecs[sec] = true;
-  if (sec === "timeline" || sec === "wings") loadTaxonomy();
+  if (sec === "timeline") loadTaxonomy("pg-tl", "st-tl", true);
+  if (sec === "wings") loadTaxonomy("pg-wings", "st-wings", false);
   if (sec === "stats") loadStats();
 }
 function animateCount(el, to) {
@@ -225,13 +226,33 @@ async function fetchStream(url, pg, st, label) {
   return result;
 }
 function evHtml(e) {
-  return `<article class="ev" data-id="${e.id || ""}" data-kind="${e.kind}"><span title="${e.kind}">${kindIcon[e.kind]||"&#x25a3;"}</span> ` +
+  const extra = e.kind === "fact" || e.kind === "fact-ended"
+    ? ` data-s="${(e.s||"").replace(/"/g, "")}" data-o="${(e.o||"").replace(/"/g, "")}"` : "";
+  return `<article class="ev" data-id="${e.id || ""}" data-kind="${e.kind}"${extra}><span title="${e.kind}">${kindIcon[e.kind]||"&#x25a3;"}</span> ` +
     `<time datetime="${e.t||""}">${(e.t||"").slice(0,16).replace("T"," ")}</time> ` +
     (e.wing ? `<span class="meta">${e.wing}${e.room ? "/" + e.room : ""}</span> ` : "") +
     `${(e.text||"").slice(0,140)}</article>`;
 }
+function factSearch(box, s, o) {
+  box.innerHTML += `<div class="statusline">searching drawers about “${s}”…</div>`;
+  fetch("api/search?q=" + encodeURIComponent(s + " " + o) + "&n=5").then(r=>r.json()).then(sr=>{
+    if (!sr.ok || !sr.hits.length) { box.querySelector(".statusline").textContent = "no drawers mention it."; return; }
+    const div = document.createElement("div");
+    div.innerHTML = sr.hits.map(h =>
+      `<article class="ev" data-id="${h.id}"><span class="meta">${h.wing||""}/${h.room||""}` +
+      (h.distance != null ? ` · d=${h.distance}` : "") + `</span> ${(h.text||"").slice(0,140)}</article>`).join("");
+    box.querySelector(".statusline").replaceWith(div);
+    wireInspector(box);
+  }).catch(err => { box.querySelector(".statusline").textContent = "error: " + err; });
+}
 function wireInspector(root) {
-  root.querySelectorAll(".ev[data-id]").forEach(el => el.onclick = () => inspectDrawer(el.dataset.id));
+  root.querySelectorAll(".ev[data-id]").forEach(el => {
+    if (el.dataset.id) el.onclick = () => inspectDrawer(el.dataset.id);
+  });
+  root.querySelectorAll('.ev[data-kind="fact"],.ev[data-kind="fact-ended"]').forEach(el => {
+    if (!el.dataset.id && el.dataset.s) el.style.cursor = "pointer";
+    if (!el.dataset.id && el.dataset.s) el.onclick = () => factSearch(root, el.dataset.s, el.dataset.o);
+  });
 }
 function loadTimeline(wing) {
   const st = document.getElementById("st-tl"), pg = document.getElementById("pg-tl");
@@ -259,11 +280,11 @@ function renderTaxonomy(t) {
     `</article>`).join("");
   animateCount(document.getElementById("wtotal"), total);
 }
-function loadTaxonomy() {
-  const pg = document.getElementById("pg-wings"), st = document.getElementById("st-wings");
+function loadTaxonomy(pgId, stId, thenTimeline) {
+  const pg = document.getElementById(pgId), st = document.getElementById(stId);
   fetchStream("api/taxonomy?stream=1", pg, st, "scanning").then(t => {
     renderTaxonomy(t);
-    loadTimeline("");
+    if (thenTimeline) loadTimeline(document.getElementById("wing").value || "");
   }).catch(e => {
     document.getElementById("wings").textContent = "error: " + e;
     document.getElementById("tl").textContent = "error: " + e;
@@ -813,12 +834,18 @@ def similar_to(palace_path: str, drawer_id: str, n: int = 5) -> dict:
 
 def recent_diary(palace_path: str, n: int = 5) -> dict:
     col = open_collection(palace_path)
-    ids, metas, docs, _, _ = _unwrap(col.get_recent(
-        limit=n, where={"room": "diary"}, include=["metadatas", "documents"]))
+    # get_recent() is oldest-first (see timeline): sort ourselves.
+    ids, metas, docs, _, _ = _unwrap(col.get(
+        where={"room": "diary"}, limit=10000, offset=0,
+        include=["metadatas", "documents"]))
+    rows = sorted(
+        ((m.get("filed_at") or m.get("authored_at") or "", i, m, d)
+         for i, m, d in zip(ids or [], metas or [], docs or [])),
+        reverse=True)[:n]
     return {"ok": True, "entries": [
         {"id": i, "wing": (m or {}).get("wing"), "t": (m or {}).get("filed_at") or (m or {}).get("authored_at"),
          "topic": None, "text": (d or "")[:300]}
-        for i, m, d in zip(ids, metas, docs)]}
+        for _, i, m, d in rows]}
 
 
 def top_entities(palace_path: str, n: int = 15) -> dict:
@@ -984,15 +1011,20 @@ def timeline(palace_path: str, wing: str | None = None, limit: int = 200) -> dic
 
     events: list = []
     col = open_collection(palace_path)
-    # Newest-first straight from the backend: no full scan for a page.
-    ids, metas, docs, _, _ = _unwrap(col.get_recent(
-        limit=limit, where=({"wing": wing} if wing else None),
-        include=["metadatas", "documents"]))
-    for i, m, d in zip(ids, metas, docs):
+    # get_recent() returns OLDEST-first despite the name (verified live:
+    # Sep-16 backfill rows), so newest-first needs our own sort. One scan
+    # carrying (t, id, meta, doc) tuples, sorted desc, page sliced.
+    pairs = []
+    ids, metas, docs, _, _ = _unwrap(col.get(
+        where=({"wing": wing} if wing else None),
+        limit=100000, offset=0, include=["metadatas", "documents"]))
+    for i, m, d in zip(ids or [], metas or [], docs or []):
         m = m or {}
         t = m.get("filed_at") or m.get("authored_at")
-        if not t:
-            continue
+        if t:
+            pairs.append((t, i, m, d or ""))
+    pairs.sort(key=lambda t: t[0], reverse=True)
+    for t, i, m, d in pairs[:limit]:
         room = m.get("room") or "?"
         events.append(
             {
@@ -1017,12 +1049,14 @@ def timeline(palace_path: str, wing: str | None = None, limit: int = 200) -> dic
             if ex:
                 events.append(
                     {"t": ex, "kind": "fact", "wing": None, "room": None,
-                     "text": f"{s} → {p} → {o}", "source": None}
+                     "text": f"{s} → {p} → {o}", "source": None,
+                     "s": s, "p": p, "o": o}
                 )
             if vt:
                 events.append(
                     {"t": vt, "kind": "fact-ended", "wing": None, "room": None,
-                     "text": f"{s} → {p} → {o}", "source": None}
+                     "text": f"{s} → {p} → {o}", "source": None,
+                     "s": s, "p": p, "o": o}
                 )
     except Exception:
         pass  # KG unreadable: timeline degrades to drawers, never fails
@@ -1038,14 +1072,17 @@ def timeline_scan(palace_path: str, wing: str | None = None, limit: int = 200):
     yield {"phase": "drawers", "step": 1, "steps": 3}
     events: list = []
     col = open_collection(palace_path)
-    ids, metas, docs, _, _ = _unwrap(col.get_recent(
-        limit=limit, where=({"wing": wing} if wing else None),
-        include=["metadatas", "documents"]))
-    for i, m, d in zip(ids, metas, docs):
+    pairs = []
+    ids, metas, docs, _, _ = _unwrap(col.get(
+        where=({"wing": wing} if wing else None),
+        limit=100000, offset=0, include=["metadatas", "documents"]))
+    for i, m, d in zip(ids or [], metas or [], docs or []):
         m = m or {}
         t = m.get("filed_at") or m.get("authored_at")
-        if not t:
-            continue
+        if t:
+            pairs.append((t, i, m, d or ""))
+    pairs.sort(key=lambda t: t[0], reverse=True)
+    for t, i, m, d in pairs[:limit]:
         room = m.get("room") or "?"
         events.append(
             {
@@ -1071,12 +1108,14 @@ def timeline_scan(palace_path: str, wing: str | None = None, limit: int = 200):
             if ex:
                 events.append(
                     {"t": ex, "kind": "fact", "wing": None, "room": None,
-                     "text": f"{st} → {pr} → {o}", "source": None}
+                     "text": f"{st} → {pr} → {o}", "source": None,
+                     "s": st, "p": pr, "o": o}
                 )
             if vt:
                 events.append(
                     {"t": vt, "kind": "fact-ended", "wing": None, "room": None,
-                     "text": f"{st} → {pr} → {o}", "source": None}
+                     "text": f"{st} → {pr} → {o}", "source": None,
+                     "s": st, "p": pr, "o": o}
                 )
     except Exception:
         pass
